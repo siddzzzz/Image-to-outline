@@ -1,0 +1,561 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Image-to-Outline Vector Studio</title>
+  <style>
+    :root {
+      --bg: #0f1117;
+      --panel: #181b24;
+      --border: #2a2f3d;
+      --text: #f1f5f9;
+      --muted: #94a3b8;
+      --accent: #6366f1;
+      --accent-hover: #4f46e5;
+      --success: #10b981;
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      min-height: 100vh;
+      padding: 24px;
+    }
+    .container {
+      max-width: 1220px;
+      margin: 0 auto;
+    }
+    header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 24px;
+      padding-bottom: 16px;
+      border-bottom: 1px solid var(--border);
+    }
+    header h1 {
+      font-size: 1.45rem;
+      font-weight: 700;
+      letter-spacing: -0.02em;
+    }
+    header p {
+      color: var(--muted);
+      font-size: 0.9rem;
+      margin-top: 4px;
+    }
+    .badge {
+      background: rgba(99, 102, 241, 0.15);
+      color: #818cf8;
+      border: 1px solid rgba(99, 102, 241, 0.3);
+      padding: 6px 12px;
+      border-radius: 999px;
+      font-size: 0.8rem;
+      font-weight: 600;
+    }
+    .grid {
+      display: grid;
+      grid-template-columns: 320px 1fr;
+      gap: 24px;
+    }
+    @media (max-width: 900px) {
+      .grid { grid-template-columns: 1fr; }
+    }
+    .panel {
+      background: var(--panel);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 20px;
+    }
+    .panel h2 {
+      font-size: 1rem;
+      margin-bottom: 16px;
+      color: var(--text);
+    }
+    .dropzone {
+      border: 2px dashed var(--border);
+      border-radius: 10px;
+      padding: 24px 16px;
+      text-align: center;
+      cursor: pointer;
+      transition: all 0.2s;
+      margin-bottom: 16px;
+    }
+    .dropzone:hover, .dropzone.dragover {
+      border-color: var(--accent);
+      background: rgba(99, 102, 241, 0.06);
+    }
+    .dropzone p {
+      font-size: 0.88rem;
+      color: var(--muted);
+      margin-top: 6px;
+    }
+    .sample-btns {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 6px;
+      margin-bottom: 20px;
+    }
+    .sample-btn {
+      background: #222734;
+      color: var(--text);
+      border: 1px solid var(--border);
+      padding: 7px 6px;
+      border-radius: 6px;
+      font-size: 0.75rem;
+      cursor: pointer;
+      transition: background 0.15s;
+    }
+    .sample-btn:hover { background: #2d3344; }
+    .control-group {
+      margin-bottom: 16px;
+    }
+    .control-group label {
+      display: flex;
+      justify-content: space-between;
+      font-size: 0.84rem;
+      color: var(--muted);
+      margin-bottom: 6px;
+    }
+    select, input[type="range"] {
+      width: 100%;
+      background: #11131a;
+      color: var(--text);
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      padding: 8px;
+      font-size: 0.88rem;
+    }
+    .checkbox-row {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      font-size: 0.88rem;
+      margin-bottom: 18px;
+      cursor: pointer;
+    }
+    .btn-primary {
+      width: 100%;
+      background: var(--accent);
+      color: white;
+      border: none;
+      padding: 11px;
+      border-radius: 8px;
+      font-weight: 600;
+      font-size: 0.92rem;
+      cursor: pointer;
+      transition: background 0.15s;
+    }
+    .btn-primary:hover { background: var(--accent-hover); }
+    .btn-primary:disabled { opacity: 0.5; cursor: not-allowed; }
+    .preview-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 16px;
+      margin-bottom: 18px;
+    }
+    @media (max-width: 650px) {
+      .preview-grid { grid-template-columns: 1fr; }
+    }
+    .canvas-card {
+      background: #12151e;
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      padding: 12px;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+    }
+    .canvas-card h3 {
+      font-size: 0.82rem;
+      color: var(--muted);
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      margin-bottom: 10px;
+      align-self: flex-start;
+    }
+    .viewport {
+      width: 100%;
+      height: 340px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      background: #ffffff;
+      border-radius: 6px;
+      overflow: hidden;
+    }
+    .viewport img, .viewport svg {
+      max-width: 100%;
+      max-height: 100%;
+      object-fit: contain;
+    }
+    .metrics-bar {
+      display: grid;
+      grid-template-columns: repeat(4, 1fr);
+      gap: 12px;
+      margin-bottom: 16px;
+    }
+    .metric-card {
+      background: #12151e;
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 10px 12px;
+    }
+    .metric-card span {
+      display: block;
+      font-size: 0.74rem;
+      color: var(--muted);
+    }
+    .metric-card strong {
+      font-size: 1.05rem;
+      color: var(--text);
+    }
+    .metric-card strong.highlight {
+      color: var(--success);
+    }
+    .json-box {
+      background: #0b0d12;
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 12px;
+    }
+    .json-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 8px;
+    }
+    .json-header span {
+      font-size: 0.8rem;
+      color: var(--muted);
+      font-family: monospace;
+    }
+    .action-btns {
+      display: flex;
+      gap: 8px;
+    }
+    .btn-sm {
+      background: #222734;
+      color: var(--text);
+      border: 1px solid var(--border);
+      padding: 5px 10px;
+      border-radius: 5px;
+      font-size: 0.76rem;
+      cursor: pointer;
+    }
+    .btn-sm:hover { background: #2e3546; }
+    textarea {
+      width: 100%;
+      height: 95px;
+      background: transparent;
+      color: #a5b4fc;
+      border: none;
+      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+      font-size: 0.78rem;
+      resize: vertical;
+      outline: none;
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <header>
+      <div>
+        <h1>Image-to-Outline Vector Engine</h1>
+        <p>U2Netp (4.5 MB ONNX) Foreground Isolation + Smooth Animated Line Art + Cubic Bézier SVG Equations</p>
+      </div>
+      <div class="badge">Pure Black &amp; White Vector Output</div>
+    </header>
+
+    <div class="grid">
+      <div class="panel">
+        <h2>1. Input &amp; Parameters</h2>
+        <div class="dropzone" id="dropzone">
+          <strong>Click or Drop Image Here</strong>
+          <p>PNG, JPG, WebP (Person, Object, Banner, Text)</p>
+          <input type="file" id="fileInput" accept="image/*" style="display:none" />
+        </div>
+
+        <div style="font-size:0.78rem; color:var(--muted); margin-bottom:6px;">Or try a synthetic test scene with messy background:</div>
+        <div class="sample-btns">
+          <button class="sample-btn" onclick="loadSample('person')">Person</button>
+          <button class="sample-btn" onclick="loadSample('object')">Object</button>
+          <button class="sample-btn" onclick="loadSample('banner')">Text Banner</button>
+        </div>
+
+        <div class="control-group">
+          <label><span>Detail Preset</span></label>
+          <select id="detailSelect" onchange="triggerConvert()">
+            <option value="minimal">Minimal (Silhouette + Key Lines)</option>
+            <option value="medium" selected>Medium (Animated Film Style)</option>
+            <option value="high">High (Intricate Edges &amp; Small Text)</option>
+          </select>
+        </div>
+
+        <div class="control-group">
+          <label>
+            <span>Outer Silhouette Thickness</span>
+            <strong id="thickVal">2 px</strong>
+          </label>
+          <input type="range" id="thickInput" min="1" max="5" step="1" value="2"
+                 oninput="document.getElementById('thickVal').textContent=this.value+' px'"
+                 onchange="triggerConvert()" />
+        </div>
+
+        <div class="control-group">
+          <label>
+            <span>Curve Smoothing (Epsilon)</span>
+            <strong id="epsVal">0.65</strong>
+          </label>
+          <input type="range" id="epsInput" min="0.35" max="2.0" step="0.05" value="0.65"
+                 oninput="document.getElementById('epsVal').textContent=this.value"
+                 onchange="triggerConvert()" />
+        </div>
+
+        <label class="checkbox-row">
+          <input type="checkbox" id="removeBgInput" checked onchange="triggerConvert()" />
+          <span>Ignore Background (U2Netp + Hybrid)</span>
+        </label>
+
+        <label class="checkbox-row">
+          <input type="checkbox" id="autoCropInput" checked onchange="triggerConvert()" />
+          <span>Auto-Zoom to Subject (Fixes Distant / Group Photos)</span>
+        </label>
+
+        <button class="btn-primary" id="convertBtn" onclick="triggerConvert()">Convert to Vector Outline</button>
+      </div>
+
+      <div class="panel">
+        <div class="metrics-bar">
+          <div class="metric-card">
+            <span>Processing Time</span>
+            <strong id="mTime">—</strong>
+          </div>
+          <div class="metric-card">
+            <span>DB JSON Payload</span>
+            <strong id="mJsonSize" class="highlight">—</strong>
+          </div>
+          <div class="metric-card">
+            <span>Gzipped DB Size</span>
+            <strong id="mGzipSize">—</strong>
+          </div>
+          <div class="metric-card">
+            <span>Curves / Points</span>
+            <strong id="mPoints">—</strong>
+          </div>
+        </div>
+
+        <div class="preview-grid">
+          <div class="canvas-card">
+            <h3>Original Image <span id="origSizeLabel" style="font-weight:normal"></span></h3>
+            <div class="viewport" style="background:#1e2230;">
+              <img id="origPreview" alt="Upload an image" style="display:none;" />
+              <span id="origPlaceholder" style="color:var(--muted); font-size:0.85rem;">No image selected</span>
+            </div>
+          </div>
+
+          <div class="canvas-card">
+            <h3>Rendered from DB Equations (&lt;path d="..."&gt;)</h3>
+            <div class="viewport" id="svgViewport">
+              <span style="color:#64748b; font-size:0.85rem;">Vector output will appear here</span>
+            </div>
+          </div>
+        </div>
+
+        <div class="json-box">
+          <div class="json-header">
+            <span>Database Payload: {"w": width, "h": height, "d": "Cubic Bézier SVG Path"}</span>
+            <div class="action-btns">
+              <button class="btn-sm" onclick="copyJson()">Copy DB JSON</button>
+              <button class="btn-sm" onclick="downloadSvg()">Download .SVG</button>
+            </div>
+          </div>
+          <textarea id="jsonOutput" readonly placeholder='{"w":512,"h":512,"d":"M..."}'></textarea>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    let currentBlob = null;
+    let lastSvgString = "";
+
+    const dropzone = document.getElementById("dropzone");
+    const fileInput = document.getElementById("fileInput");
+
+    dropzone.addEventListener("click", () => fileInput.click());
+    dropzone.addEventListener("dragover", (e) => { e.preventDefault(); dropzone.classList.add("dragover"); });
+    dropzone.addEventListener("dragleave", () => dropzone.classList.remove("dragover"));
+    dropzone.addEventListener("drop", (e) => {
+      e.preventDefault();
+      dropzone.classList.remove("dragover");
+      if (e.dataTransfer.files.length) handleFile(e.dataTransfer.files[0]);
+    });
+    fileInput.addEventListener("change", () => {
+      if (fileInput.files.length) handleFile(fileInput.files[0]);
+    });
+
+    function handleFile(file) {
+      currentBlob = file;
+      const url = URL.createObjectURL(file);
+      const img = document.getElementById("origPreview");
+      img.src = url;
+      img.style.display = "block";
+      document.getElementById("origPlaceholder").style.display = "none";
+      document.getElementById("origSizeLabel").textContent = `(${(file.size / 1024).toFixed(1)} KB)`;
+      triggerConvert();
+    }
+
+    async function triggerConvert() {
+      if (!currentBlob) return;
+      const btn = document.getElementById("convertBtn");
+      btn.disabled = true;
+      btn.textContent = "Tracing Mathematical Curves...";
+
+      const form = new FormData();
+      form.append("file", currentBlob, "input.png");
+      form.append("detail", document.getElementById("detailSelect").value);
+      form.append("outer_thickness", document.getElementById("thickInput").value);
+      form.append("simplify_epsilon", document.getElementById("epsInput").value);
+      form.append("remove_background", document.getElementById("removeBgInput").checked);
+      form.append("auto_crop", document.getElementById("autoCropInput").checked);
+
+      try {
+        const res = await fetch("/api/outline", { method: "POST", body: form });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.detail || "Conversion failed");
+
+        const payloadStr = JSON.stringify(data.db_payload);
+        document.getElementById("jsonOutput").value = payloadStr;
+        lastSvgString = data.svg;
+
+        // Render strictly from the compact db_payload to prove it works standalone
+        const { w, h, d } = data.db_payload;
+        document.getElementById("svgViewport").innerHTML =
+          `<svg viewBox="0 0 ${w} ${h}" width="100%" height="100%">
+             <path d="${d}" fill="#000000" fill-rule="evenodd" />
+           </svg>`;
+
+        const m = data.metrics;
+        document.getElementById("mTime").textContent = `${m.processing_ms} ms`;
+        document.getElementById("mJsonSize").textContent = `${m.json_size_kb} KB`;
+        document.getElementById("mGzipSize").textContent = `${m.gzip_size_kb} KB`;
+        document.getElementById("mPoints").textContent = `${m.contours} / ${m.anchor_points} pts`;
+      } catch (err) {
+        alert(err.message);
+      } finally {
+        btn.disabled = false;
+        btn.textContent = "Convert to Vector Outline";
+      }
+    }
+
+    function copyJson() {
+      const el = document.getElementById("jsonOutput");
+      el.select();
+      navigator.clipboard.writeText(el.value);
+    }
+
+    function downloadSvg() {
+      if (!lastSvgString) return;
+      const blob = new Blob([lastSvgString], { type: "image/svg+xml" });
+      const a = document.createElement("a");
+      a.href = URL.createObjectURL(blob);
+      a.download = "outline.svg";
+      a.click();
+    }
+
+    function loadSample(type) {
+      const c = document.createElement("canvas");
+      c.width = 512;
+      c.height = 512;
+      const ctx = c.getContext("2d");
+
+      if (type === "person") {
+        // Busy background gradient + clutter shapes
+        const grad = ctx.createLinearGradient(0, 0, 512, 512);
+        grad.addColorStop(0, "#dbeafe");
+        grad.addColorStop(1, "#fef3c7");
+        ctx.fillStyle = grad;
+        ctx.fillRect(0, 0, 512, 512);
+
+        // Foreground character (head, hair, shoulders, eyes, smile, shirt collar)
+        ctx.fillStyle = "#1e293b";
+        ctx.beginPath();
+        ctx.arc(256, 460, 145, Math.PI, 0);
+        ctx.fill();
+
+        // Neck & Face
+        ctx.fillStyle = "#fcd34d";
+        ctx.fillRect(230, 265, 52, 65);
+        ctx.beginPath();
+        ctx.arc(256, 200, 82, 0, Math.PI * 2);
+        ctx.fill();
+
+        // Hair cap
+        ctx.fillStyle = "#0f172a";
+        ctx.beginPath();
+        ctx.arc(256, 185, 86, Math.PI * 0.95, Math.PI * 2.05);
+        ctx.fill();
+
+        // Eyes & Smile
+        ctx.fillStyle = "#0f172a";
+        ctx.beginPath(); ctx.arc(226, 195, 9, 0, Math.PI * 2); ctx.fill();
+        ctx.beginPath(); ctx.arc(286, 195, 9, 0, Math.PI * 2); ctx.fill();
+        ctx.lineWidth = 6;
+        ctx.strokeStyle = "#0f172a";
+        ctx.beginPath(); ctx.arc(256, 215, 28, 0.15 * Math.PI, 0.85 * Math.PI); ctx.stroke();
+
+        // Collar V-neck
+        ctx.strokeStyle = "#f8fafc";
+        ctx.lineWidth = 7;
+        ctx.beginPath(); ctx.moveTo(215, 325); ctx.lineTo(256, 385); ctx.lineTo(297, 325); ctx.stroke();
+      } else if (type === "object") {
+        ctx.fillStyle = "#e2e8f0";
+        ctx.fillRect(0, 0, 512, 512);
+        // Coffee mug + handle + steam
+        ctx.strokeStyle = "#dc2626";
+        ctx.lineWidth = 24;
+        ctx.beginPath();
+        ctx.arc(345, 285, 55, -Math.PI/2, Math.PI/2);
+        ctx.stroke();
+
+        ctx.fillStyle = "#ef4444";
+        ctx.beginPath();
+        ctx.roundRect(145, 190, 200, 210, [10, 10, 45, 45]);
+        ctx.fill();
+
+        ctx.fillStyle = "#7c2d12";
+        ctx.beginPath();
+        ctx.ellipse(245, 195, 95, 22, 0, 0, Math.PI * 2);
+        ctx.fill();
+      } else {
+        // Banner with bold text & badge
+        ctx.fillStyle = "#f8fafc";
+        ctx.fillRect(0, 0, 512, 512);
+        ctx.fillStyle = "#1e1b4b";
+        ctx.beginPath();
+        ctx.roundRect(56, 150, 400, 210, 24);
+        ctx.fill();
+        ctx.strokeStyle = "#fbbf24";
+        ctx.lineWidth = 8;
+        ctx.strokeRect(74, 168, 364, 174);
+        ctx.fillStyle = "#ffffff";
+        ctx.font = "bold 56px sans-serif";
+        ctx.textAlign = "center";
+        ctx.fillText("OUTLINE", 256, 248);
+        ctx.font = "bold 36px sans-serif";
+        ctx.fillStyle = "#fbbf24";
+        ctx.fillText("STUDIO 2.0", 256, 305);
+      }
+
+      c.toBlob((blob) => {
+        handleFile(new File([blob], `${type}_sample.png`, { type: "image/png" }));
+      }, "image/png");
+    }
+
+    window.addEventListener("DOMContentLoaded", () => loadSample("person"));
+  </script>
+</body>
+</html>
+
