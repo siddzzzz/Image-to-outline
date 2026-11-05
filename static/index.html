@@ -323,6 +323,11 @@
           <span>Auto-Zoom to Subject (Fixes Distant / Group Photos)</span>
         </label>
 
+        <label class="checkbox-row">
+          <input type="checkbox" id="enhanceFacesInput" checked onchange="triggerConvert()" />
+          <span>Natural Face Enhancement (Eyes, Lips, Jawline)</span>
+        </label>
+
         <button class="btn-primary" id="convertBtn" onclick="triggerConvert()">Convert to Vector Outline</button>
       </div>
 
@@ -420,6 +425,7 @@
       form.append("simplify_epsilon", document.getElementById("epsInput").value);
       form.append("remove_background", document.getElementById("removeBgInput").checked);
       form.append("auto_crop", document.getElementById("autoCropInput").checked);
+      form.append("enhance_faces", document.getElementById("enhanceFacesInput").checked);
 
       try {
         const res = await fetch("/api/outline", { method: "POST", body: form });
