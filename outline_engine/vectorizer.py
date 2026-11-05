@@ -151,7 +151,10 @@ class BezierVectorizer:
             )[:, 0, :]
 
             if len(approx) < 3:
-                continue
+                if len(pts) >= 4:
+                    approx = np.array([pts[0], pts[len(pts) // 3], pts[2 * len(pts) // 3]])
+                else:
+                    continue
 
             is_hole = hier[idx][3] != -1
             signed_area = cv2.contourArea(approx.reshape(-1, 1, 2), oriented=True)
