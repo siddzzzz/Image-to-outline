@@ -26,40 +26,31 @@ class AnimatedLineStylizer:
 
     PRESETS = {
         "minimal": {
-            "bilateral_passes": 3,
-            "bilateral_sigma_color": 48,
-            "bilateral_sigma_space": 26,
             "outer_thickness": 2,
-            "valley_sigma_bg": 2.8,
-            "valley_sigma_fg": 0.8,
-            "valley_thresh": 7.0,
-            "canny_low": 70,
-            "canny_high": 160,
-            "min_component_area": 30,
+            "canny_low": 30,
+            "canny_high": 85,
+            "dog_thresh": 6.5,
+            "grad_thresh": 38,
+            "min_span": 12,
+            "min_area": 25,
         },
         "medium": {
-            "bilateral_passes": 3,
-            "bilateral_sigma_color": 38,
-            "bilateral_sigma_space": 22,
             "outer_thickness": 2,
-            "valley_sigma_bg": 2.8,
-            "valley_sigma_fg": 0.7,
-            "valley_thresh": 5.0,
-            "canny_low": 50,
-            "canny_high": 125,
-            "min_component_area": 18,
+            "canny_low": 20,
+            "canny_high": 60,
+            "dog_thresh": 4.5,
+            "grad_thresh": 28,
+            "min_span": 8,
+            "min_area": 14,
         },
         "high": {
-            "bilateral_passes": 2,
-            "bilateral_sigma_color": 28,
-            "bilateral_sigma_space": 14,
             "outer_thickness": 2,
-            "valley_sigma_bg": 2.4,
-            "valley_sigma_fg": 0.6,
-            "valley_thresh": 3.6,
-            "canny_low": 35,
-            "canny_high": 95,
-            "min_component_area": 10,
+            "canny_low": 14,
+            "canny_high": 45,
+            "dog_thresh": 3.0,
+            "grad_thresh": 18,
+            "min_span": 5,
+            "min_area": 8,
         },
     }
 
@@ -96,55 +87,65 @@ class AnimatedLineStylizer:
         if enhance_faces:
             face_lines, skin_mask = self.face_enhancer.extract_face_features(bgr_img, detail=detail)
 
-        # 4. Cartoon Surface Smoothing (flattens surface gradients while keeping main features sharp)
-        gray = cv2.cvtColor(bgr_img, cv2.COLOR_BGR2GRAY)
-        smoothed = gray
-        for _ in range(cfg["bilateral_passes"]):
-            smoothed = cv2.bilateralFilter(
-                smoothed,
-                d=7,
-                sigmaColor=cfg["bilateral_sigma_color"],
-                sigmaSpace=cfg["bilateral_sigma_space"],
-            )
+        # 4. Multi-channel Edge-Preserving Surface Smoothing
+        # Suppresses fabric/surface micro-noise while keeping all highlights, seams, and boundaries intact
+        smooth_b = cv2.bilateralFilter(bgr_img[:, :, 0], 5, 25, 9)
+        smooth_g = cv2.bilateralFilter(bgr_img[:, :, 1], 5, 25, 9)
+        smooth_r = cv2.bilateralFilter(bgr_img[:, :, 2], 5, 25, 9)
+        smooth_bgr = cv2.merge([smooth_b, smooth_g, smooth_r])
+        gray = cv2.cvtColor(smooth_bgr, cv2.COLOR_BGR2GRAY)
 
-        # 5a. XDoG Local Valley Detector: extracts dark features, creases, and seams
-        local_bg = cv2.GaussianBlur(smoothed, (0, 0), cfg["valley_sigma_bg"])
-        local_fg = cv2.GaussianBlur(smoothed, (0, 0), cfg["valley_sigma_fg"])
-        diff = local_bg.astype(np.float32) - local_fg.astype(np.float32)
-        ink_valleys = (diff > cfg["valley_thresh"]).astype(np.uint8) * 255
+        # 5. Multi-channel Morphological Color Gradient (captures colored highlights, graphics, badges, trims)
+        k_grad = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (3, 3))
+        gb = cv2.morphologyEx(smooth_b, cv2.MORPH_GRADIENT, k_grad)
+        gg = cv2.morphologyEx(smooth_g, cv2.MORPH_GRADIENT, k_grad)
+        gr = cv2.morphologyEx(smooth_r, cv2.MORPH_GRADIENT, k_grad)
+        color_grad = np.maximum.reduce([gb, gg, gr])
 
-        # 5b. Structural Canny edges for clean boundaries between major color blocks
-        strong_edges = cv2.Canny(smoothed, cfg["canny_low"], cfg["canny_high"], L2gradient=True)
+        # 6. Symmetric Multi-Scale Difference of Gaussians (captures BOTH highlights/ridges AND dark creases/seams)
+        g1 = cv2.GaussianBlur(gray, (0, 0), 0.75)
+        g2 = cv2.GaussianBlur(gray, (0, 0), 2.1)
+        dog = np.abs(g1.astype(np.float32) - g2.astype(np.float32))
 
-        # 6. Combine & Clip Directly to `smooth_mask` (Zero Gap to Outer Silhouette!)
-        combined_inner = cv2.bitwise_or(ink_valleys, strong_edges)
-        combined_inner = cv2.bitwise_and(combined_inner, smooth_mask)
+        # 7. Multi-channel Sensitive Canny for crisp structural centerlines
+        cb = cv2.Canny(smooth_b, cfg["canny_low"], cfg["canny_high"], L2gradient=True)
+        cg = cv2.Canny(smooth_g, cfg["canny_low"], cfg["canny_high"], L2gradient=True)
+        cr = cv2.Canny(smooth_r, cfg["canny_low"], cfg["canny_high"], L2gradient=True)
+        color_canny = np.maximum.reduce([cb, cg, cr])
 
-        # Suppress cheek and forehead shadow noise if faces are present
+        # 8. Highlight ridges & high-contrast feature fusion
+        ridge_mask = (dog > cfg["dog_thresh"]).astype(np.uint8) * 255
+        high_contrast = (color_grad > cfg["grad_thresh"]).astype(np.uint8) * 255
+        structural_lines = cv2.bitwise_or(color_canny, cv2.bitwise_and(ridge_mask, high_contrast))
+
+        # 9. Clip to foreground mask
+        structural_lines = cv2.bitwise_and(structural_lines, smooth_mask)
+
+        # 10. Soft Skin Suppression on faces (only suppress low-contrast shadow noise on skin,
+        # preserving high-contrast features like glasses frames, beards, and jewelry)
         if skin_mask is not None and cv2.countNonZero(skin_mask) > 0:
-            combined_inner[skin_mask > 0] = 0
+            low_contrast_skin = (skin_mask > 0) & (color_grad < 32)
+            structural_lines[low_contrast_skin] = 0
+            if face_lines is not None and cv2.countNonZero(face_lines) > 0:
+                structural_lines = cv2.bitwise_or(structural_lines, face_lines)
 
-        # Bridge micro-breaks in lines before speckle removal
+        # 11. Bridge continuous strokes and prune isolated noise speckles
         k_bridge = cv2.getStructuringElement(cv2.MORPH_RECT, (2, 2))
-        combined_inner = cv2.dilate(combined_inner, k_bridge, iterations=1)
+        bridged = cv2.dilate(structural_lines, k_bridge, iterations=1)
+        cleaned_inner = self._remove_speckles(
+            bridged, min_area=cfg["min_area"], min_span=cfg["min_span"]
+        )
 
-        # 7. Prune tiny isolated speckles while preserving long thin strokes
-        cleaned_inner = self._remove_speckles(combined_inner, min_area=cfg["min_component_area"])
-
-        # Fuse general lines + enhanced facial features
-        if face_lines is not None and cv2.countNonZero(face_lines) > 0:
-            cleaned_inner = cv2.bitwise_or(cleaned_inner, face_lines)
-
-        # 8. Fuse Outer Silhouette + Internal Lines & apply anti-staircase smoothing
+        # 12. Fuse Outer Silhouette + Internal Lines & apply anti-staircase smoothing
         final_lines = cv2.bitwise_or(outer_silhouette, cleaned_inner)
         final_lines = cv2.GaussianBlur(final_lines, (3, 3), 0)
-        _, final_lines = cv2.threshold(final_lines, 105, 255, cv2.THRESH_BINARY)
+        _, final_lines = cv2.threshold(final_lines, 90, 255, cv2.THRESH_BINARY)
 
         return final_lines
 
     @staticmethod
-    def _remove_speckles(binary_lines: np.ndarray, min_area: int) -> np.ndarray:
-        """Removes small disconnected noise dots while preserving facial and detail strokes."""
+    def _remove_speckles(binary_lines: np.ndarray, min_area: int, min_span: int = 8) -> np.ndarray:
+        """Removes disconnected noise dots while preserving elongated strokes (laces, hair, seams)."""
         num_labels, labels, stats, _ = cv2.connectedComponentsWithStats(binary_lines, connectivity=8)
         output = np.zeros_like(binary_lines)
 
@@ -154,7 +155,8 @@ class AnimatedLineStylizer:
             h = stats[i, cv2.CC_STAT_HEIGHT]
             span = max(w, h)
 
-            if area >= min_area or (area >= max(8, min_area // 2) and span >= 8):
+            # Keep if elongated (stroke-like) OR if area meets threshold
+            if span >= min_span or (area >= min_area and span >= max(4, min_span // 2)):
                 output[labels == i] = 255
 
         return output
