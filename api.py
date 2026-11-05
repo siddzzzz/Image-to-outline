@@ -21,9 +21,10 @@ STATIC_DIR.mkdir(exist_ok=True)
 
 @app.on_event("startup")
 def preload_model():
-    # Ensure the 4.5MB U2Netp ONNX model is downloaded and warmed up on startup
+    # Ensure both lightweight models are downloaded and warmed up on startup
     try:
         pipeline.segmenter.ensure_model()
+        pipeline.stylizer.face_enhancer.ensure_model()
     except Exception as exc:
         print(f"[Warning] Could not pre-download model on startup: {exc}")
 
@@ -45,6 +46,7 @@ async def convert_image_to_outline(
     outer_thickness: int = Form(2),
     remove_background: bool = Form(True),
     auto_crop: bool = Form(True),
+    enhance_faces: bool = Form(True),
 ):
     """
     Main endpoint for converting an uploaded image into a compact DB vector outline.
@@ -63,6 +65,7 @@ async def convert_image_to_outline(
             outer_thickness=max(1, min(6, outer_thickness)),
             remove_background=remove_background,
             auto_crop=auto_crop,
+            enhance_faces=enhance_faces,
         )
     except Exception as exc:
         raise HTTPException(status_code=422, detail=f"Failed to process image: {exc}") from exc
