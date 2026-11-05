@@ -123,6 +123,7 @@ class ImageToOutlinePipeline:
         outer_thickness: int | None = None,
         remove_background: bool = True,
         auto_crop: bool = True,
+        enhance_faces: bool = True,
     ) -> OutlineResult:
         """
         Runs the full pipeline on an image and returns an OutlineResult.
@@ -153,12 +154,13 @@ class ImageToOutlinePipeline:
             fg_mask = cv2.resize(fg_mask, (new_w, new_h), interpolation=cv2.INTER_LINEAR)
             _, fg_mask = cv2.threshold(fg_mask, 127, 255, cv2.THRESH_BINARY)
 
-        # Stage 3: Smooth animation-style black & white line extraction (zero gap at silhouette)
+        # Stage 3: Smooth animation-style black & white line extraction (with face enhancement)
         line_bitmap = self.stylizer.generate_line_bitmap(
             bgr_img=bgr,
             fg_mask=fg_mask,
             detail=detail,
             outer_line_thickness=outer_thickness,
+            enhance_faces=enhance_faces,
         )
 
         # Stage 4: Mathematical Cubic Bézier vectorization
