@@ -142,7 +142,7 @@ class ForegroundSegmenter:
         self,
         bgr_img: np.ndarray,
         alpha_channel: np.ndarray | None = None,
-        mask_threshold: float = 0.24,
+        mask_threshold: float = 0.40,
     ) -> np.ndarray:
         """
         Returns a clean, edge-snapped binary uint8 mask (0 or 255) isolating all foreground entities.
@@ -186,9 +186,9 @@ class ForegroundSegmenter:
         cleaned = cv2.GaussianBlur(cleaned, (5, 5), 0)
         _, cleaned = cv2.threshold(cleaned, 127, 255, cv2.THRESH_BINARY)
 
-        # Remove small disconnected background blobs (< 0.25% of image area)
+        # Remove small disconnected background blobs (< 0.5% of image area)
         num_labels, labels, stats, _ = cv2.connectedComponentsWithStats(cleaned, connectivity=8)
-        min_blob_area = max(40, int(h * w * 0.0025))
+        min_blob_area = max(50, int(h * w * 0.005))
         final_mask = np.zeros_like(cleaned)
         for idx in range(1, num_labels):
             if stats[idx, cv2.CC_STAT_AREA] >= min_blob_area:
