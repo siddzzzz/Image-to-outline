@@ -2,6 +2,8 @@ from typing import Literal
 import cv2
 import numpy as np
 
+from .face_enhancer import FaceEnhancer
+
 DetailLevel = Literal["minimal", "medium", "high"]
 
 
@@ -11,13 +13,16 @@ class AnimatedLineStylizer:
     (255 = black ink line, 0 = white background).
 
     Features:
-    1. Multi-pass Bilateral Cartoon Filtering: Flattens skin shading & lighting noise so
-       faces don't turn into scrambled lines.
-    2. XDoG Valley Detection: Extracts eyebrows, eyes, smiles, and dark seams as clean
-       single strokes instead of Canny double-rings.
-    3. Zero-Gap Silhouette Fusion: Internal lines clip directly to the guided-filtered
+    1. Dedicated Face Enhancement: Extracts natural, comic-style eyebrows, eyelids, pupils,
+       lips, and jawlines while silencing cheek & forehead shadow noise.
+    2. Multi-pass Bilateral Cartoon Filtering: Flattens surface shading & lighting gradients.
+    3. XDoG Valley Detection: Extracts dark creases, folds, and seams as clean single strokes.
+    4. Zero-Gap Silhouette Fusion: Internal lines clip directly to the guided-filtered
        mask boundary and merge seamlessly with the outer silhouette.
     """
+
+    def __init__(self):
+        self.face_enhancer = FaceEnhancer()
 
     PRESETS = {
         "minimal": {
@@ -64,6 +69,7 @@ class AnimatedLineStylizer:
         fg_mask: np.ndarray,
         detail: DetailLevel = "medium",
         outer_line_thickness: int | None = None,
+        enhance_faces: bool = True,
     ) -> np.ndarray:
         """
         Produces a clean binary uint8 mask where 255 represents the black outline strokes
@@ -84,7 +90,13 @@ class AnimatedLineStylizer:
             cv2.erode(smooth_mask, k_in, iterations=1),
         )
 
-        # 3. Cartoon Surface Smoothing (flattens cheek/skin gradients while keeping facial features sharp)
+        # 3. Detect and extract natural facial features & skin suppression mask
+        face_lines = None
+        skin_mask = None
+        if enhance_faces:
+            face_lines, skin_mask = self.face_enhancer.extract_face_features(bgr_img, detail=detail)
+
+        # 4. Cartoon Surface Smoothing (flattens surface gradients while keeping main features sharp)
         gray = cv2.cvtColor(bgr_img, cv2.COLOR_BGR2GRAY)
         smoothed = gray
         for _ in range(cfg["bilateral_passes"]):
@@ -95,27 +107,38 @@ class AnimatedLineStylizer:
                 sigmaSpace=cfg["bilateral_sigma_space"],
             )
 
-        # 4a. XDoG Local Valley Detector: extracts dark features (eyebrows, eyes, smiles, glasses,
-        # dark seams) as clean single strokes rather than hollow Canny double-rings
+        # 5a. XDoG Local Valley Detector: extracts dark features, creases, and seams
         local_bg = cv2.GaussianBlur(smoothed, (0, 0), cfg["valley_sigma_bg"])
         local_fg = cv2.GaussianBlur(smoothed, (0, 0), cfg["valley_sigma_fg"])
         diff = local_bg.astype(np.float32) - local_fg.astype(np.float32)
         ink_valleys = (diff > cfg["valley_thresh"]).astype(np.uint8) * 255
 
-        # 4b. Structural Canny edges for clean boundaries between major color blocks
+        # 5b. Structural Canny edges for clean boundaries between major color blocks
         strong_edges = cv2.Canny(smoothed, cfg["canny_low"], cfg["canny_high"], L2gradient=True)
 
-        # 5. Combine & Clip Directly to `smooth_mask` (Zero Gap to Outer Silhouette!)
+        # 6. Combine & Clip Directly to `smooth_mask` (Zero Gap to Outer Silhouette!)
         combined_inner = cv2.bitwise_or(ink_valleys, strong_edges)
         combined_inner = cv2.bitwise_and(combined_inner, smooth_mask)
 
-        # 6. Prune tiny isolated speckles while preserving facial strokes
+        # Suppress cheek and forehead shadow noise if faces are present
+        if skin_mask is not None and cv2.countNonZero(skin_mask) > 0:
+            combined_inner[skin_mask > 0] = 0
+
+        # Bridge micro-breaks in lines before speckle removal
+        k_bridge = cv2.getStructuringElement(cv2.MORPH_RECT, (2, 2))
+        combined_inner = cv2.dilate(combined_inner, k_bridge, iterations=1)
+
+        # 7. Prune tiny isolated speckles while preserving long thin strokes
         cleaned_inner = self._remove_speckles(combined_inner, min_area=cfg["min_component_area"])
 
-        # 7. Fuse Outer Silhouette + Internal Lines & apply anti-staircase smoothing
+        # Fuse general lines + enhanced facial features
+        if face_lines is not None and cv2.countNonZero(face_lines) > 0:
+            cleaned_inner = cv2.bitwise_or(cleaned_inner, face_lines)
+
+        # 8. Fuse Outer Silhouette + Internal Lines & apply anti-staircase smoothing
         final_lines = cv2.bitwise_or(outer_silhouette, cleaned_inner)
         final_lines = cv2.GaussianBlur(final_lines, (3, 3), 0)
-        _, final_lines = cv2.threshold(final_lines, 110, 255, cv2.THRESH_BINARY)
+        _, final_lines = cv2.threshold(final_lines, 105, 255, cv2.THRESH_BINARY)
 
         return final_lines
 
