@@ -32,6 +32,11 @@ def main():
         action="store_true",
         help="Do not remove background before outlining.",
     )
+    parser.add_argument(
+        "--disable-face-enhance",
+        action="store_true",
+        help="Disable automatic facial landmark and feature enhancement.",
+    )
 
     args = parser.parse_args()
 
@@ -46,6 +51,7 @@ def main():
         detail=args.detail,
         max_dimension=args.max_dim,
         remove_background=not args.keep_bg,
+        enhance_faces=not args.disable_face_enhance,
     )
 
     json_path = args.output_json or args.input.with_suffix(".outline.json")
