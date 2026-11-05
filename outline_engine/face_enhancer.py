@@ -139,8 +139,17 @@ class FaceEnhancer:
                     e_th = cv2.adaptiveThreshold(
                         e_blur, 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C, cv2.THRESH_BINARY_INV, 11, c_eye
                     )
+                    # Filter speckles inside eye ROI, preserving coherent eyelid curves & pupil
+                    num_e, labels_e, stats_e, _ = cv2.connectedComponentsWithStats(e_th, connectivity=8)
+                    e_clean = np.zeros_like(e_th)
+                    min_eye_comp = max(2, int(eye_dist * 0.05))
+                    for i in range(1, num_e):
+                        area = stats_e[i, cv2.CC_STAT_AREA]
+                        w_comp = stats_e[i, cv2.CC_STAT_WIDTH]
+                        if area >= min_eye_comp or w_comp >= 3:
+                            e_clean[labels_e == i] = 255
                     k_e = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (2, 2))
-                    e_clean = cv2.morphologyEx(e_th, cv2.MORPH_OPEN, k_e)
+                    e_clean = cv2.dilate(e_clean, k_e, iterations=1)
                     face_lines[ey1:ey2, ex1:ex2] = cv2.bitwise_or(face_lines[ey1:ey2, ex1:ex2], e_clean)
 
             # 3. Nose (nostrils & base septum curve, suppressing vertical bridge shadows)
