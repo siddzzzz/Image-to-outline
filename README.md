@@ -3,9 +3,10 @@
 Ultra-lightweight Python engine that isolates foreground entities (people, objects, banners, text) from images and converts them into smooth, animation-style black-and-white **Cubic Bézier SVG Path equations** (`{"w": 512, "h": 512, "d": "M..."}`) for compact database storage.
 
 ## Key Features
-- **Lightweight Foreground Isolation (~4.5 MB):** Uses `u2netp.onnx` via CPU `onnxruntime` (no PyTorch or GPU needed) plus hybrid background-color distance for crisp text/banners.
+- **Lightweight Foreground Isolation (~4.5 MB):** Uses `u2netp.onnx` via CPU `onnxruntime` (no PyTorch or GPU needed) with guided-filter edge snapping and multi-region tiling.
+- **Natural Comic/Animation Face Outlines (~227 KB):** Automatically detects human faces via YuNet ONNX to extract clean eyebrows, eyelid arcs, pupil dots, lip parting contours, and jawlines while silencing cheek & forehead shadow noise.
 - **Smooth Animated Line Art:** Combines a bold outer silhouette contour with multi-pass bilateral surface smoothing, Canny structural strokes, and Difference-of-Gaussians (DoG) ink detection.
-- **Tiny Database Footprint (2 KB – 12 KB):** Traces contours into piecewise Cubic Bézier curves (`M`, `L`, `C`, `Z`), cutting storage size by **85%–98%** compared to storing raster images.
+- **Tiny Database Footprint (2 KB – 15 KB):** Traces contours into piecewise Cubic Bézier curves (`M`, `L`, `C`, `Z`), cutting storage size by **85%–98%** compared to storing raster images.
 
 ---
 
@@ -15,7 +16,7 @@ Ultra-lightweight Python engine that isolates foreground entities (people, objec
 ```bash
 pip install -r requirements.txt
 ```
-*(The 4.5 MB `u2netp.onnx` model is downloaded automatically into `models/u2netp.onnx` on first run.)*
+*(The 4.5 MB `u2netp.onnx` segmentation model and 227 KB `face_detection_yunet_2023mar.onnx` model are downloaded automatically into `models/` on first run.)*
 
 ### 2. Run Interactive Web Studio & FastAPI Backend
 ```bash
