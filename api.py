@@ -41,6 +41,7 @@ def serve_studio():
 async def convert_image_to_outline(
     file: UploadFile = File(...),
     detail: Literal["minimal", "medium", "high"] = Form("medium"),
+    vector_mode: Literal["centerline", "tapered_ribbon", "ribbon"] = Form("centerline"),
     max_dimension: int = Form(680),
     simplify_epsilon: float = Form(0.65),
     outer_thickness: int = Form(2),
@@ -50,7 +51,7 @@ async def convert_image_to_outline(
 ):
     """
     Main endpoint for converting an uploaded image into a compact DB vector outline.
-    Returns both the compact DB payload (`db_payload`: {"w", "h", "d"}) and metrics.
+    Returns both the compact DB payload (`db_payload`: {"w", "h", "d", ["sw"]}) and metrics.
     """
     raw_bytes = await file.read()
     if not raw_bytes:
@@ -66,6 +67,7 @@ async def convert_image_to_outline(
             remove_background=remove_background,
             auto_crop=auto_crop,
             enhance_faces=enhance_faces,
+            vector_mode=vector_mode,
         )
     except Exception as exc:
         raise HTTPException(status_code=422, detail=f"Failed to process image: {exc}") from exc

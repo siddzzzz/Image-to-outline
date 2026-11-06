@@ -22,6 +22,13 @@ def main():
         help="Level of internal outline detail (default: medium).",
     )
     parser.add_argument(
+        "-m",
+        "--mode",
+        choices=["centerline", "tapered_ribbon", "ribbon"],
+        default="centerline",
+        help="Vectorization equation mode (default: centerline).",
+    )
+    parser.add_argument(
         "--max-dim",
         type=int,
         default=512,
@@ -52,6 +59,7 @@ def main():
         max_dimension=args.max_dim,
         remove_background=not args.keep_bg,
         enhance_faces=not args.disable_face_enhance,
+        vector_mode=args.mode,
     )
 
     json_path = args.output_json or args.input.with_suffix(".outline.json")
