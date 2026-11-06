@@ -7,7 +7,7 @@ import numpy as np
 
 from .segmenter import ForegroundSegmenter
 from .stylizer import AnimatedLineStylizer, DetailLevel
-from .vectorizer import BezierVectorizer
+from .vectorizer import BezierVectorizer, VectorMode
 
 
 @dataclass
@@ -23,14 +23,19 @@ class OutlineResult:
     json_size_bytes: int
     gzip_size_bytes: int
     svg_string: str
+    vector_mode: VectorMode = "centerline"
+    stroke_width: float | None = None
 
     def to_db_dict(self) -> dict:
         """Minimal JSON object designed to be stored directly in a database column."""
-        return {
+        payload = {
             "w": self.width,
             "h": self.height,
             "d": self.path_d,
         }
+        if self.vector_mode == "centerline" and self.stroke_width is not None:
+            payload["sw"] = self.stroke_width
+        return payload
 
     def to_db_json(self) -> str:
         """Compact serialized JSON string with no extra whitespace."""
@@ -124,6 +129,7 @@ class ImageToOutlinePipeline:
         remove_background: bool = True,
         auto_crop: bool = True,
         enhance_faces: bool = True,
+        vector_mode: VectorMode = "centerline",
     ) -> OutlineResult:
         """
         Runs the full pipeline on an image and returns an OutlineResult.
@@ -167,11 +173,15 @@ class ImageToOutlinePipeline:
         vectorizer = BezierVectorizer(
             simplify_epsilon=simplify_epsilon,
             precision=0,
+            mode=vector_mode,
         )
-        traced = vectorizer.trace_bitmap(line_bitmap)
+        traced = vectorizer.trace_bitmap(line_bitmap, mode=vector_mode)
         svg_str = vectorizer.to_svg_string(traced)
 
         db_dict = {"w": traced["w"], "h": traced["h"], "d": traced["d"]}
+        if traced.get("mode") == "centerline" and traced.get("stroke_width") is not None:
+            db_dict["sw"] = traced["stroke_width"]
+
         db_json_str = json.dumps(db_dict, separators=(",", ":"))
         gzip_b64 = vectorizer.compress_payload(db_dict)
 
@@ -188,4 +198,6 @@ class ImageToOutlinePipeline:
             json_size_bytes=len(db_json_str.encode("utf-8")),
             gzip_size_bytes=len(gzip_b64.encode("ascii")) * 3 // 4,
             svg_string=svg_str,
+            vector_mode=traced.get("mode", vector_mode),
+            stroke_width=traced.get("stroke_width"),
         )
