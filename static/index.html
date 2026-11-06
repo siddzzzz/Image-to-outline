@@ -294,6 +294,15 @@
         </div>
 
         <div class="control-group">
+          <label><span>Vector Mode</span></label>
+          <select id="vectorModeSelect" onchange="triggerConvert()">
+            <option value="centerline" selected>Centerline (Tapered Pen — ~50% Smaller DB)</option>
+            <option value="tapered_ribbon">Calligraphy Ribbon (Variable Width Brush Pen)</option>
+            <option value="ribbon">Classic Ribbon (Dual Contour Boundaries)</option>
+          </select>
+        </div>
+
+        <div class="control-group">
           <label>
             <span>Outer Silhouette Thickness</span>
             <strong id="thickVal">2 px</strong>
@@ -370,7 +379,7 @@
 
         <div class="json-box">
           <div class="json-header">
-            <span>Database Payload: {"w": width, "h": height, "d": "Cubic Bézier SVG Path"}</span>
+            <span>Database Payload: {"w": width, "h": height, "d": "Bézier Path", "sw"?: stroke_width}</span>
             <div class="action-btns">
               <button class="btn-sm" onclick="copyJson()">Copy DB JSON</button>
               <button class="btn-sm" onclick="downloadSvg()">Download .SVG</button>
@@ -421,6 +430,7 @@
       const form = new FormData();
       form.append("file", currentBlob, "input.png");
       form.append("detail", document.getElementById("detailSelect").value);
+      form.append("vector_mode", document.getElementById("vectorModeSelect").value);
       form.append("outer_thickness", document.getElementById("thickInput").value);
       form.append("simplify_epsilon", document.getElementById("epsInput").value);
       form.append("remove_background", document.getElementById("removeBgInput").checked);
@@ -437,11 +447,18 @@
         lastSvgString = data.svg;
 
         // Render strictly from the compact db_payload to prove it works standalone
-        const { w, h, d } = data.db_payload;
-        document.getElementById("svgViewport").innerHTML =
-          `<svg viewBox="0 0 ${w} ${h}" width="100%" height="100%">
-             <path d="${d}" fill="#000000" fill-rule="evenodd" />
-           </svg>`;
+        const { w, h, d, sw } = data.db_payload;
+        if (sw !== undefined && sw !== null) {
+          document.getElementById("svgViewport").innerHTML =
+            `<svg viewBox="0 0 ${w} ${h}" width="100%" height="100%">
+               <path d="${d}" stroke="#000000" stroke-width="${sw}" stroke-linecap="round" stroke-linejoin="round" fill="none" />
+             </svg>`;
+        } else {
+          document.getElementById("svgViewport").innerHTML =
+            `<svg viewBox="0 0 ${w} ${h}" width="100%" height="100%">
+               <path d="${d}" fill="#000000" fill-rule="evenodd" />
+             </svg>`;
+        }
 
         const m = data.metrics;
         document.getElementById("mTime").textContent = `${m.processing_ms} ms`;
