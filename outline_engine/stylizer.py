@@ -1,8 +1,9 @@
-from typing import Literal
+from typing import Literal, Tuple
 import cv2
 import numpy as np
 
 from .face_enhancer import FaceEnhancer
+from .flow_field import EdgeTangentFlow
 
 DetailLevel = Literal["minimal", "medium", "high"]
 
@@ -23,6 +24,7 @@ class AnimatedLineStylizer:
 
     def __init__(self):
         self.face_enhancer = FaceEnhancer()
+        self.flow_field = EdgeTangentFlow(iterations=1, radius=2)
 
     PRESETS = {
         "minimal": {
@@ -61,7 +63,9 @@ class AnimatedLineStylizer:
         detail: DetailLevel = "medium",
         outer_line_thickness: int | None = None,
         enhance_faces: bool = True,
-    ) -> np.ndarray:
+        use_flow_guidance: bool = True,
+        return_flow: bool = False,
+    ) -> np.ndarray | Tuple[np.ndarray, np.ndarray, np.ndarray]:
         """
         Produces a clean binary uint8 mask where 255 represents the black outline strokes
         and 0 represents white empty space.
@@ -87,12 +91,20 @@ class AnimatedLineStylizer:
         if enhance_faces:
             face_lines, skin_mask = self.face_enhancer.extract_face_features(bgr_img, detail=detail)
 
-        # 4. Multi-channel Edge-Preserving Surface Smoothing
+        # 4. Multi-channel Edge-Preserving Surface Smoothing & Flow-Guided Directional Filtering
         # Suppresses fabric/surface micro-noise while keeping all highlights, seams, and boundaries intact
         smooth_b = cv2.bilateralFilter(bgr_img[:, :, 0], 5, 25, 9)
         smooth_g = cv2.bilateralFilter(bgr_img[:, :, 1], 5, 25, 9)
         smooth_r = cv2.bilateralFilter(bgr_img[:, :, 2], 5, 25, 9)
         smooth_bgr = cv2.merge([smooth_b, smooth_g, smooth_r])
+
+        tx, ty = None, None
+        if use_flow_guidance:
+            tx, ty, _ = self.flow_field.compute_field(bgr_img)
+            # Smooth along edge tangents to eliminate perpendicular jitter and connect continuous ridges
+            smooth_bgr = self.flow_field.filter_along_tangents(smooth_bgr, tx, ty, line_length=2)
+            smooth_b, smooth_g, smooth_r = cv2.split(smooth_bgr)
+
         gray = cv2.cvtColor(smooth_bgr, cv2.COLOR_BGR2GRAY)
 
         # 5. Multi-channel Morphological Color Gradient (captures colored highlights, graphics, badges, trims)
@@ -141,6 +153,8 @@ class AnimatedLineStylizer:
         final_lines = cv2.GaussianBlur(final_lines, (3, 3), 0)
         _, final_lines = cv2.threshold(final_lines, 90, 255, cv2.THRESH_BINARY)
 
+        if return_flow:
+            return final_lines, tx, ty
         return final_lines
 
     @staticmethod
