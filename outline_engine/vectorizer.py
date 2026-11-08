@@ -172,13 +172,20 @@ class BezierVectorizer:
 
         return "".join(cmds)
 
-    def trace_centerlines(self, binary_bitmap: np.ndarray) -> dict:
+    def trace_centerlines(
+        self,
+        binary_bitmap: np.ndarray,
+        tx: np.ndarray | None = None,
+        ty: np.ndarray | None = None,
+    ) -> dict:
         """
         Vectorizes 1-pixel centerlines into open/closed Cubic Bézier stroke paths.
         Yields ultra-compact JSON representation (~50% smaller than ribbon mode).
         """
         h, w = binary_bitmap.shape[:2]
-        strokes = self.skeletonizer.trace_skeleton_strokes(binary_bitmap, min_length=4)
+        strokes = self.skeletonizer.trace_skeleton_strokes(
+            binary_bitmap, min_length=4, tx=tx, ty=ty
+        )
 
         if not strokes:
             return {
@@ -232,12 +239,19 @@ class BezierVectorizer:
             "points": total_points,
         }
 
-    def trace_tapered_ribbons(self, binary_bitmap: np.ndarray) -> dict:
+    def trace_tapered_ribbons(
+        self,
+        binary_bitmap: np.ndarray,
+        tx: np.ndarray | None = None,
+        ty: np.ndarray | None = None,
+    ) -> dict:
         """
         Vectorizes brush-pen tapered ribbons with calligraphy pressure variation at stroke tips.
         """
         h, w = binary_bitmap.shape[:2]
-        strokes = self.skeletonizer.trace_skeleton_strokes(binary_bitmap, min_length=4)
+        strokes = self.skeletonizer.trace_skeleton_strokes(
+            binary_bitmap, min_length=4, tx=tx, ty=ty
+        )
 
         if not strokes:
             return {
@@ -283,15 +297,21 @@ class BezierVectorizer:
             "points": total_points,
         }
 
-    def trace_bitmap(self, binary_bitmap: np.ndarray, mode: VectorMode | None = None) -> dict:
+    def trace_bitmap(
+        self,
+        binary_bitmap: np.ndarray,
+        mode: VectorMode | None = None,
+        tx: np.ndarray | None = None,
+        ty: np.ndarray | None = None,
+    ) -> dict:
         """
         Main vectorization entry point. Selects mode ('centerline', 'tapered_ribbon', or 'ribbon').
         """
         selected_mode = mode or self.mode
         if selected_mode == "centerline":
-            return self.trace_centerlines(binary_bitmap)
+            return self.trace_centerlines(binary_bitmap, tx=tx, ty=ty)
         elif selected_mode == "tapered_ribbon":
-            return self.trace_tapered_ribbons(binary_bitmap)
+            return self.trace_tapered_ribbons(binary_bitmap, tx=tx, ty=ty)
 
         # Traditional ribbon mode (contour boundaries)
         h, w = binary_bitmap.shape[:2]

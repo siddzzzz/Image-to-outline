@@ -159,16 +159,22 @@ class StrokeSkeletonizer:
         return skeleton, dist_map
 
     def trace_skeleton_strokes(
-        self, binary_img: np.ndarray, min_length: int = 4
+        self,
+        binary_img: np.ndarray,
+        min_length: int = 4,
+        tx: np.ndarray | None = None,
+        ty: np.ndarray | None = None,
     ) -> list[CenterlineStroke]:
         """
         Traces a binary stroke bitmap into continuous, ordered CenterlineStroke objects
-        using directional look-ahead continuity.
+        using directional look-ahead continuity and Edge Tangent Flow (ETF) guidance.
         """
         thin, dist = self.compute_medial_axis(binary_img)
         h, w = thin.shape
         visited = np.zeros((h, w), dtype=bool)
         b = (thin > 0).astype(np.uint8)
+
+        has_flow = (tx is not None) and (ty is not None)
 
         # 8-neighbor degree computation
         k_deg = np.ones((3, 3), dtype=np.uint8)
@@ -200,21 +206,38 @@ class StrokeSkeletonizer:
                 if not candidates:
                     break
 
-                if len(candidates) == 1 or prev_dir is None:
+                if len(candidates) == 1:
                     best_ny, best_nx = candidates[0]
                 else:
-                    p_dx, p_dy = prev_dir
-                    best_dot = -9999.0
+                    best_score = -9999.0
                     best_ny, best_nx = candidates[0]
+
+                    p_dx, p_dy = prev_dir if prev_dir is not None else (0.0, 0.0)
+                    p_dist = np.hypot(p_dx, p_dy)
+
                     for ny, nx in candidates:
-                        cdx = nx - cx
-                        cdy = ny - cy
-                        dot = p_dx * cdx + p_dy * cdy
-                        if dot > best_dot:
-                            best_dot = dot
+                        cdx = float(nx - cx)
+                        cdy = float(ny - cy)
+                        cdist = np.hypot(cdx, cdy)
+                        step_x, step_y = cdx / cdist, cdy / cdist
+
+                        flow_score = 0.0
+                        if has_flow:
+                            ltx = float(tx[cy, cx])
+                            lty = float(ty[cy, cx])
+                            flow_score = abs(step_x * ltx + step_y * lty)
+
+                        if prev_dir is not None and p_dist > 1e-4:
+                            prev_score = (p_dx * step_x + p_dy * step_y) / p_dist
+                            score = 0.6 * prev_score + 0.4 * flow_score if has_flow else prev_score
+                        else:
+                            score = flow_score if has_flow else 0.0
+
+                        if score > best_score:
+                            best_score = score
                             best_ny, best_nx = ny, nx
 
-                prev_dir = (best_nx - cx, best_ny - cy)
+                prev_dir = (float(best_nx - cx), float(best_ny - cy))
                 cy, cx = best_ny, best_nx
                 visited[cy, cx] = True
                 pts_list.append((float(cx), float(cy)))
