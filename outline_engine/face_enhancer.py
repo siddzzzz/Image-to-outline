@@ -117,75 +117,24 @@ class FaceEnhancer:
                 bh = int(eye_dist * 0.30)
                 bx1, bx2 = max(0, ex - bw // 2), min(w, ex + bw // 2)
                 by1, by2 = max(0, ey - int(eye_dist * 0.48)), min(h, ey - int(eye_dist * 0.12))
-                brow_roi = gray[by1:by2, bx1:bx2]
-                if brow_roi.size > 0:
-                    b_blur = cv2.GaussianBlur(brow_roi, (5, 5), 0)
-                    b_th = cv2.adaptiveThreshold(
-                        b_blur, 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C, cv2.THRESH_BINARY_INV, 15, c_brow
-                    )
-                    k_w = max(2, int(eye_dist * 0.08))
-                    k_b = cv2.getStructuringElement(cv2.MORPH_RECT, (k_w, 2))
-                    b_clean = cv2.morphologyEx(b_th, cv2.MORPH_OPEN, k_b)
-                    face_lines[by1:by2, bx1:bx2] = cv2.bitwise_or(face_lines[by1:by2, bx1:bx2], b_clean)
+                self._fit_eyebrow_spline(face_lines, gray, bx1, by1, bx2, by2, ex, ey, eye_dist)
 
                 # Eye ROI (centered at eye landmark)
                 ew = int(eye_dist * 0.52)
                 eh = int(eye_dist * 0.34)
                 ex1, ex2 = max(0, ex - ew // 2), min(w, ex + ew // 2)
                 ey1, ey2 = max(0, ey - eh // 2), min(h, ey + eh // 2)
-                eye_roi = gray[ey1:ey2, ex1:ex2]
-                if eye_roi.size > 0:
-                    e_blur = cv2.GaussianBlur(eye_roi, (3, 3), 0)
-                    e_th = cv2.adaptiveThreshold(
-                        e_blur, 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C, cv2.THRESH_BINARY_INV, 11, c_eye
-                    )
-                    # Filter speckles inside eye ROI, preserving coherent eyelid curves & pupil
-                    num_e, labels_e, stats_e, _ = cv2.connectedComponentsWithStats(e_th, connectivity=8)
-                    e_clean = np.zeros_like(e_th)
-                    min_eye_comp = max(2, int(eye_dist * 0.05))
-                    for i in range(1, num_e):
-                        area = stats_e[i, cv2.CC_STAT_AREA]
-                        w_comp = stats_e[i, cv2.CC_STAT_WIDTH]
-                        if area >= min_eye_comp or w_comp >= 3:
-                            e_clean[labels_e == i] = 255
-                    k_e = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (2, 2))
-                    e_clean = cv2.dilate(e_clean, k_e, iterations=1)
-                    face_lines[ey1:ey2, ex1:ex2] = cv2.bitwise_or(face_lines[ey1:ey2, ex1:ex2], e_clean)
+                self._fit_eye_features(face_lines, gray, ex1, ey1, ex2, ey2, ex, ey, eye_dist)
 
-            # 3. Nose (nostrils & base septum curve, suppressing vertical bridge shadows)
+            # 3. Nose (nostrils & base septum accents)
             nx, ny = int(nose[0]), int(nose[1])
-            nw, nh = int(eye_dist * 0.44), int(eye_dist * 0.28)
-            nx1, nx2 = max(0, nx - nw // 2), min(w, nx + nw // 2)
-            ny1, ny2 = max(0, ny - nh // 4), min(h, ny + int(nh * 0.75))
-            n_roi = gray[ny1:ny2, nx1:nx2]
-            if n_roi.size > 0:
-                n_blur = cv2.GaussianBlur(n_roi, (3, 3), 0)
-                n_th = cv2.adaptiveThreshold(
-                    n_blur, 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C, cv2.THRESH_BINARY_INV, 11, 8
-                )
-                face_lines[ny1:ny2, nx1:nx2] = cv2.bitwise_or(face_lines[ny1:ny2, nx1:nx2], n_th)
+            self._fit_nostril_accents(face_lines, nx, ny, eye_dist)
 
-            # 4. Mouth & Lips (combining gray mouth parting line + Cr chromaticity contour)
-            mx1 = max(0, min(int(rm[0]), int(lm[0])) - int(eye_dist * 0.16))
-            mx2 = min(w, max(int(rm[0]), int(lm[0])) + int(eye_dist * 0.16))
-            my1 = max(0, min(int(rm[1]), int(lm[1])) - int(eye_dist * 0.24))
-            my2 = min(h, max(int(rm[1]), int(lm[1])) + int(eye_dist * 0.36))
-            m_gray = gray[my1:my2, mx1:mx2]
-            m_cr = cr[my1:my2, mx1:mx2]
-            if m_gray.size > 0:
-                m_blur = cv2.GaussianBlur(m_gray, (3, 3), 0)
-                m_th1 = cv2.adaptiveThreshold(
-                    m_blur, 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C, cv2.THRESH_BINARY_INV, 15, c_mouth
-                )
-                cr_blur = cv2.GaussianBlur(m_cr, (5, 5), 0)
-                cr_canny = cv2.Canny(cr_blur, 15, 45)
-                m_comb = cv2.bitwise_or(m_th1, cr_canny)
-                k_mw = max(2, int(eye_dist * 0.06))
-                k_m = cv2.getStructuringElement(cv2.MORPH_RECT, (k_mw, 2))
-                m_clean = cv2.morphologyEx(m_comb, cv2.MORPH_OPEN, k_m)
-                face_lines[my1:my2, mx1:mx2] = cv2.bitwise_or(face_lines[my1:my2, mx1:mx2], m_clean)
+            # 4. Mouth & Lips (parametric stoma parting line + lower lip accent)
+            self._fit_mouth_features(face_lines, gray, rm, lm, eye_dist)
 
             # 5. Jawline & Chin
+            my2 = min(h, max(int(rm[1]), int(lm[1])) + int(eye_dist * 0.25))
             jy1 = min(int(rm[1]), int(lm[1]))
             jy2 = min(h, fy + fh + int(fh * 0.08))
             jx1 = max(0, fx - int(fw * 0.08))
@@ -205,3 +154,146 @@ class FaceEnhancer:
         _, face_lines = cv2.threshold(face_lines, 95, 255, cv2.THRESH_BINARY)
 
         return face_lines, skin_mask
+
+    @staticmethod
+    def _fit_eyebrow_spline(
+        canvas: np.ndarray,
+        gray: np.ndarray,
+        bx1: int,
+        by1: int,
+        bx2: int,
+        by2: int,
+        ex: int,
+        ey: int,
+        eye_dist: float,
+    ) -> None:
+        roi = gray[by1:by2, bx1:bx2]
+        if roi.size == 0:
+            return
+        h_roi, w_roi = roi.shape
+        th = float(np.percentile(roi, 30))
+        pts = np.argwhere(roi <= min(th, 100))
+        if len(pts) >= 8:
+            xs = pts[:, 1].astype(np.float32)
+            ys = pts[:, 0].astype(np.float32)
+            try:
+                poly = np.polyfit(xs, ys, 2)
+                eval_xs = np.linspace(0, w_roi - 1, 15)
+                eval_ys = np.clip(np.polyval(poly, eval_xs), 0, h_roi - 1)
+                curve_pts = np.column_stack((eval_xs + bx1, eval_ys + by1)).astype(np.int32)
+                cv2.polylines(canvas, [curve_pts.reshape(-1, 1, 2)], False, 255, 2, cv2.LINE_AA)
+                return
+            except Exception:
+                pass
+        # Fallback anatomical arch
+        eval_xs = np.linspace(bx1, bx2, 15)
+        arch_h = eye_dist * 0.08
+        denom = max(1.0, (bx2 - bx1) / 2.0)
+        eval_ys = (by1 + by2) / 2.0 - arch_h * (1.0 - ((eval_xs - ex) / denom) ** 2)
+        curve_pts = np.column_stack((eval_xs, eval_ys)).astype(np.int32)
+        cv2.polylines(canvas, [curve_pts.reshape(-1, 1, 2)], False, 255, 2, cv2.LINE_AA)
+
+    @staticmethod
+    def _fit_eye_features(
+        canvas: np.ndarray,
+        gray: np.ndarray,
+        ex1: int,
+        ey1: int,
+        ex2: int,
+        ey2: int,
+        ex: int,
+        ey: int,
+        eye_dist: float,
+    ) -> None:
+        roi = gray[ey1:ey2, ex1:ex2]
+        if roi.size == 0:
+            return
+        h_roi, w_roi = roi.shape
+        sample_xs = np.linspace(2, w_roi - 3, 9)
+        pts = []
+        for sx in sample_xs:
+            x_idx = int(round(sx))
+            col = roi[: max(3, h_roi * 3 // 4), x_idx]
+            if len(col) > 0:
+                min_y = int(np.argmin(col))
+                pts.append((float(x_idx), float(min_y)))
+        if len(pts) >= 4:
+            pts_arr = np.array(pts)
+            try:
+                poly = np.polyfit(pts_arr[:, 0], pts_arr[:, 1], 2)
+                eval_xs = np.linspace(2, w_roi - 3, 15)
+                eval_ys = np.clip(np.polyval(poly, eval_xs), 0, h_roi - 1)
+                curve_pts = np.column_stack((eval_xs + ex1, eval_ys + ey1)).astype(np.int32)
+                cv2.polylines(canvas, [curve_pts.reshape(-1, 1, 2)], False, 255, 2, cv2.LINE_AA)
+            except Exception:
+                pass
+        # Pupil: darkest patch
+        min_val, _, min_loc, _ = cv2.minMaxLoc(roi)
+        pr = int(max(2, round(eye_dist * 0.055)))
+        cv2.circle(canvas, (ex1 + min_loc[0], ey1 + min_loc[1]), pr, 255, -1)
+
+    @staticmethod
+    def _fit_mouth_features(
+        canvas: np.ndarray,
+        gray: np.ndarray,
+        rm: np.ndarray,
+        lm: np.ndarray,
+        eye_dist: float,
+    ) -> None:
+        h, w = gray.shape
+        mx1 = max(0, min(int(rm[0]), int(lm[0])) - int(eye_dist * 0.12))
+        mx2 = min(w, max(int(rm[0]), int(lm[0])) + int(eye_dist * 0.12))
+        my1 = max(0, min(int(rm[1]), int(lm[1])) - int(eye_dist * 0.15))
+        my2 = min(h, max(int(rm[1]), int(lm[1])) + int(eye_dist * 0.25))
+        roi = gray[my1:my2, mx1:mx2]
+        if roi.size == 0:
+            return
+        h_roi, w_roi = roi.shape
+        sample_xs = np.linspace(int(eye_dist * 0.12), max(0, w_roi - int(eye_dist * 0.12)), 11)
+        pts = []
+        for sx in sample_xs:
+            x_idx = int(round(sx))
+            if 0 <= x_idx < w_roi:
+                col = roi[:, x_idx]
+                min_y = int(np.argmin(col))
+                pts.append((float(x_idx), float(min_y)))
+        if len(pts) >= 5:
+            pts_arr = np.array(pts)
+            try:
+                poly = np.polyfit(pts_arr[:, 0], pts_arr[:, 1], 2)
+                eval_xs = np.linspace(pts_arr[0, 0], pts_arr[-1, 0], 21)
+                eval_ys = np.clip(np.polyval(poly, eval_xs), 0, h_roi - 1)
+                curve_pts = np.column_stack((eval_xs + mx1, eval_ys + my1)).astype(np.int32)
+                cv2.polylines(canvas, [curve_pts.reshape(-1, 1, 2)], False, 255, 2, cv2.LINE_AA)
+            except Exception:
+                pass
+
+        # Lower lip underline accent
+        cx = int((rm[0] + lm[0]) / 2.0)
+        cy = int((rm[1] + lm[1]) / 2.0 + eye_dist * 0.18)
+        if 0 <= cy < h and 0 <= cx < w:
+            lw = max(3, int(eye_dist * 0.14))
+            lip_xs = np.linspace(cx - lw, cx + lw, 11)
+            lip_ys = cy + (eye_dist * 0.03) * (1.0 - ((lip_xs - cx) / float(lw)) ** 2)
+            lip_pts = np.column_stack((lip_xs, lip_ys)).astype(np.int32)
+            cv2.polylines(canvas, [lip_pts.reshape(-1, 1, 2)], False, 255, 2, cv2.LINE_AA)
+
+    @staticmethod
+    def _fit_nostril_accents(
+        canvas: np.ndarray,
+        nx: int,
+        ny: int,
+        eye_dist: float,
+    ) -> None:
+        h, w = canvas.shape
+        nw = eye_dist * 0.12
+        for side in [-1, 1]:
+            nos_x = nx + side * nw
+            nos_y = ny + eye_dist * 0.02
+            t_nos = np.linspace(-1.0, 1.0, 7)
+            xs = nos_x + t_nos * (eye_dist * 0.045)
+            ys = nos_y - (eye_dist * 0.025) * (1.0 - t_nos ** 2)
+            valid = (xs >= 0) & (xs < w) & (ys >= 0) & (ys < h)
+            if np.all(valid):
+                pts = np.column_stack((xs, ys)).astype(np.int32)
+                cv2.polylines(canvas, [pts.reshape(-1, 1, 2)], False, 255, 2, cv2.LINE_AA)
