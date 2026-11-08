@@ -48,6 +48,7 @@ async def convert_image_to_outline(
     remove_background: bool = Form(True),
     auto_crop: bool = Form(True),
     enhance_faces: bool = Form(True),
+    use_flow_guidance: bool = Form(True),
 ):
     """
     Main endpoint for converting an uploaded image into a compact DB vector outline.
@@ -68,6 +69,7 @@ async def convert_image_to_outline(
             auto_crop=auto_crop,
             enhance_faces=enhance_faces,
             vector_mode=vector_mode,
+            use_flow_guidance=use_flow_guidance,
         )
     except Exception as exc:
         raise HTTPException(status_code=422, detail=f"Failed to process image: {exc}") from exc

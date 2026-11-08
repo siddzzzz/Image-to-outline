@@ -337,6 +337,11 @@
           <span>Natural Face Enhancement (Eyes, Lips, Jawline)</span>
         </label>
 
+        <label class="checkbox-row">
+          <input type="checkbox" id="flowGuidanceInput" checked onchange="triggerConvert()" />
+          <span>Coherent Flow Smoothing (Edge Tangent Field)</span>
+        </label>
+
         <button class="btn-primary" id="convertBtn" onclick="triggerConvert()">Convert to Vector Outline</button>
       </div>
 
@@ -436,6 +441,7 @@
       form.append("remove_background", document.getElementById("removeBgInput").checked);
       form.append("auto_crop", document.getElementById("autoCropInput").checked);
       form.append("enhance_faces", document.getElementById("enhanceFacesInput").checked);
+      form.append("use_flow_guidance", document.getElementById("flowGuidanceInput").checked);
 
       try {
         const res = await fetch("/api/outline", { method: "POST", body: form });

@@ -44,6 +44,11 @@ def main():
         action="store_true",
         help="Disable automatic facial landmark and feature enhancement.",
     )
+    parser.add_argument(
+        "--disable-flow",
+        action="store_true",
+        help="Disable Edge Tangent Flow (ETF) directional smoothing.",
+    )
 
     args = parser.parse_args()
 
@@ -60,6 +65,7 @@ def main():
         remove_background=not args.keep_bg,
         enhance_faces=not args.disable_face_enhance,
         vector_mode=args.mode,
+        use_flow_guidance=not args.disable_flow,
     )
 
     json_path = args.output_json or args.input.with_suffix(".outline.json")

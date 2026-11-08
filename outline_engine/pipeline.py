@@ -130,6 +130,7 @@ class ImageToOutlinePipeline:
         auto_crop: bool = True,
         enhance_faces: bool = True,
         vector_mode: VectorMode = "centerline",
+        use_flow_guidance: bool = True,
     ) -> OutlineResult:
         """
         Runs the full pipeline on an image and returns an OutlineResult.
@@ -160,14 +161,28 @@ class ImageToOutlinePipeline:
             fg_mask = cv2.resize(fg_mask, (new_w, new_h), interpolation=cv2.INTER_LINEAR)
             _, fg_mask = cv2.threshold(fg_mask, 127, 255, cv2.THRESH_BINARY)
 
-        # Stage 3: Smooth animation-style black & white line extraction (with face enhancement)
-        line_bitmap = self.stylizer.generate_line_bitmap(
-            bgr_img=bgr,
-            fg_mask=fg_mask,
-            detail=detail,
-            outer_line_thickness=outer_thickness,
-            enhance_faces=enhance_faces,
-        )
+        # Stage 3: Smooth animation-style line extraction (with ETF flow guidance & face enhancement)
+        if use_flow_guidance:
+            line_bitmap, tx, ty = self.stylizer.generate_line_bitmap(
+                bgr_img=bgr,
+                fg_mask=fg_mask,
+                detail=detail,
+                outer_line_thickness=outer_thickness,
+                enhance_faces=enhance_faces,
+                use_flow_guidance=True,
+                return_flow=True,
+            )
+        else:
+            line_bitmap = self.stylizer.generate_line_bitmap(
+                bgr_img=bgr,
+                fg_mask=fg_mask,
+                detail=detail,
+                outer_line_thickness=outer_thickness,
+                enhance_faces=enhance_faces,
+                use_flow_guidance=False,
+                return_flow=False,
+            )
+            tx, ty = None, None
 
         # Stage 4: Mathematical Cubic Bézier vectorization
         vectorizer = BezierVectorizer(
@@ -175,7 +190,7 @@ class ImageToOutlinePipeline:
             precision=0,
             mode=vector_mode,
         )
-        traced = vectorizer.trace_bitmap(line_bitmap, mode=vector_mode)
+        traced = vectorizer.trace_bitmap(line_bitmap, mode=vector_mode, tx=tx, ty=ty)
         svg_str = vectorizer.to_svg_string(traced)
 
         db_dict = {"w": traced["w"], "h": traced["h"], "d": traced["d"]}
