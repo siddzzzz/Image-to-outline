@@ -6,6 +6,7 @@ import numpy as np
 import cv2
 
 from .skeletonizer import StrokeSkeletonizer, CenterlineStroke
+from .hierarchy import StrokeTier
 
 VectorMode = Literal["centerline", "tapered_ribbon", "ribbon"]
 
@@ -177,15 +178,34 @@ class BezierVectorizer:
         binary_bitmap: np.ndarray,
         tx: np.ndarray | None = None,
         ty: np.ndarray | None = None,
+        silhouette_mask: np.ndarray | None = None,
+        structure_mask: np.ndarray | None = None,
+        mag_map: np.ndarray | None = None,
+        min_tier: StrokeTier = StrokeTier.DETAIL,
+        max_detail_strokes: int | None = None,
     ) -> dict:
         """
         Vectorizes 1-pixel centerlines into open/closed Cubic Bézier stroke paths.
-        Yields ultra-compact JSON representation (~50% smaller than ribbon mode).
+        Yields ultra-compact JSON representation (~50% smaller than ribbon mode),
+        with strokes tagged and ordered by structural hierarchy.
         """
         h, w = binary_bitmap.shape[:2]
         strokes = self.skeletonizer.trace_skeleton_strokes(
-            binary_bitmap, min_length=4, tx=tx, ty=ty
+            binary_bitmap,
+            min_length=4,
+            tx=tx,
+            ty=ty,
+            silhouette_mask=silhouette_mask,
+            structure_mask=structure_mask,
+            mag_map=mag_map,
         )
+
+        if min_tier < StrokeTier.DETAIL or max_detail_strokes is not None:
+            strokes = self.skeletonizer.classifier.prune_strokes(
+                strokes,
+                min_tier=min_tier,
+                max_detail_strokes=max_detail_strokes,
+            )
 
         if not strokes:
             return {
@@ -196,9 +216,15 @@ class BezierVectorizer:
                 "stroke_width": 1.8,
                 "contours": 0,
                 "points": 0,
+                "tiers": {"silhouette": "", "structure": "", "detail": ""},
+                "tier_counts": {"silhouette": 0, "structure": 0, "detail": 0},
             }
 
-        path_segments: list[str] = []
+        tier_segments: dict[StrokeTier, list[str]] = {
+            StrokeTier.SILHOUETTE: [],
+            StrokeTier.STRUCTURE: [],
+            StrokeTier.DETAIL: [],
+        }
         total_points = 0
         all_radii = []
 
@@ -223,11 +249,16 @@ class BezierVectorizer:
                 subpath = self._open_stroke_to_bezier_path(approx)
 
             if subpath:
-                path_segments.append(subpath)
+                tier_segments[stroke.tier].append(subpath)
                 total_points += len(approx)
                 all_radii.append(float(np.median(stroke.radii)))
 
         avg_stroke_w = max(1.2, float(np.median(all_radii) * 2.0)) if all_radii else 1.8
+        path_segments = (
+            tier_segments[StrokeTier.SILHOUETTE]
+            + tier_segments[StrokeTier.STRUCTURE]
+            + tier_segments[StrokeTier.DETAIL]
+        )
 
         return {
             "w": w,
@@ -237,6 +268,16 @@ class BezierVectorizer:
             "stroke_width": round(avg_stroke_w, 1),
             "contours": len(path_segments),
             "points": total_points,
+            "tiers": {
+                "silhouette": "".join(tier_segments[StrokeTier.SILHOUETTE]),
+                "structure": "".join(tier_segments[StrokeTier.STRUCTURE]),
+                "detail": "".join(tier_segments[StrokeTier.DETAIL]),
+            },
+            "tier_counts": {
+                "silhouette": len(tier_segments[StrokeTier.SILHOUETTE]),
+                "structure": len(tier_segments[StrokeTier.STRUCTURE]),
+                "detail": len(tier_segments[StrokeTier.DETAIL]),
+            },
         }
 
     def trace_tapered_ribbons(
@@ -244,14 +285,32 @@ class BezierVectorizer:
         binary_bitmap: np.ndarray,
         tx: np.ndarray | None = None,
         ty: np.ndarray | None = None,
+        silhouette_mask: np.ndarray | None = None,
+        structure_mask: np.ndarray | None = None,
+        mag_map: np.ndarray | None = None,
+        min_tier: StrokeTier = StrokeTier.DETAIL,
+        max_detail_strokes: int | None = None,
     ) -> dict:
         """
         Vectorizes brush-pen tapered ribbons with calligraphy pressure variation at stroke tips.
         """
         h, w = binary_bitmap.shape[:2]
         strokes = self.skeletonizer.trace_skeleton_strokes(
-            binary_bitmap, min_length=4, tx=tx, ty=ty
+            binary_bitmap,
+            min_length=4,
+            tx=tx,
+            ty=ty,
+            silhouette_mask=silhouette_mask,
+            structure_mask=structure_mask,
+            mag_map=mag_map,
         )
+
+        if min_tier < StrokeTier.DETAIL or max_detail_strokes is not None:
+            strokes = self.skeletonizer.classifier.prune_strokes(
+                strokes,
+                min_tier=min_tier,
+                max_detail_strokes=max_detail_strokes,
+            )
 
         if not strokes:
             return {
@@ -262,9 +321,15 @@ class BezierVectorizer:
                 "stroke_width": None,
                 "contours": 0,
                 "points": 0,
+                "tiers": {"silhouette": "", "structure": "", "detail": ""},
+                "tier_counts": {"silhouette": 0, "structure": 0, "detail": 0},
             }
 
-        path_segments: list[str] = []
+        tier_segments: dict[StrokeTier, list[str]] = {
+            StrokeTier.SILHOUETTE: [],
+            StrokeTier.STRUCTURE: [],
+            StrokeTier.DETAIL: [],
+        }
         total_points = 0
 
         for stroke in strokes:
@@ -284,8 +349,14 @@ class BezierVectorizer:
 
             subpath = self._contour_to_bezier_path(approx)
             if subpath:
-                path_segments.append(subpath)
+                tier_segments[stroke.tier].append(subpath)
                 total_points += len(approx)
+
+        path_segments = (
+            tier_segments[StrokeTier.SILHOUETTE]
+            + tier_segments[StrokeTier.STRUCTURE]
+            + tier_segments[StrokeTier.DETAIL]
+        )
 
         return {
             "w": w,
@@ -295,6 +366,16 @@ class BezierVectorizer:
             "stroke_width": None,
             "contours": len(path_segments),
             "points": total_points,
+            "tiers": {
+                "silhouette": "".join(tier_segments[StrokeTier.SILHOUETTE]),
+                "structure": "".join(tier_segments[StrokeTier.STRUCTURE]),
+                "detail": "".join(tier_segments[StrokeTier.DETAIL]),
+            },
+            "tier_counts": {
+                "silhouette": len(tier_segments[StrokeTier.SILHOUETTE]),
+                "structure": len(tier_segments[StrokeTier.STRUCTURE]),
+                "detail": len(tier_segments[StrokeTier.DETAIL]),
+            },
         }
 
     def trace_bitmap(
@@ -303,15 +384,38 @@ class BezierVectorizer:
         mode: VectorMode | None = None,
         tx: np.ndarray | None = None,
         ty: np.ndarray | None = None,
+        silhouette_mask: np.ndarray | None = None,
+        structure_mask: np.ndarray | None = None,
+        mag_map: np.ndarray | None = None,
+        min_tier: StrokeTier = StrokeTier.DETAIL,
+        max_detail_strokes: int | None = None,
     ) -> dict:
         """
         Main vectorization entry point. Selects mode ('centerline', 'tapered_ribbon', or 'ribbon').
         """
         selected_mode = mode or self.mode
         if selected_mode == "centerline":
-            return self.trace_centerlines(binary_bitmap, tx=tx, ty=ty)
+            return self.trace_centerlines(
+                binary_bitmap,
+                tx=tx,
+                ty=ty,
+                silhouette_mask=silhouette_mask,
+                structure_mask=structure_mask,
+                mag_map=mag_map,
+                min_tier=min_tier,
+                max_detail_strokes=max_detail_strokes,
+            )
         elif selected_mode == "tapered_ribbon":
-            return self.trace_tapered_ribbons(binary_bitmap, tx=tx, ty=ty)
+            return self.trace_tapered_ribbons(
+                binary_bitmap,
+                tx=tx,
+                ty=ty,
+                silhouette_mask=silhouette_mask,
+                structure_mask=structure_mask,
+                mag_map=mag_map,
+                min_tier=min_tier,
+                max_detail_strokes=max_detail_strokes,
+            )
 
         # Traditional ribbon mode (contour boundaries)
         h, w = binary_bitmap.shape[:2]
@@ -328,6 +432,8 @@ class BezierVectorizer:
                 "stroke_width": None,
                 "contours": 0,
                 "points": 0,
+                "tiers": {"silhouette": "", "structure": "", "detail": ""},
+                "tier_counts": {"silhouette": 0, "structure": 0, "detail": 0},
             }
 
         hier = hierarchy[0]
@@ -372,6 +478,8 @@ class BezierVectorizer:
             "stroke_width": None,
             "contours": len(path_segments),
             "points": total_points,
+            "tiers": {"silhouette": "".join(path_segments), "structure": "", "detail": ""},
+            "tier_counts": {"silhouette": len(path_segments), "structure": 0, "detail": 0},
         }
 
     @staticmethod
@@ -379,35 +487,83 @@ class BezierVectorizer:
         path_data: dict,
         stroke_color: str = "#000000",
         background_color: str | None = "#ffffff",
+        hierarchical_weights: bool = False,
     ) -> str:
         """
         Wraps path data into a valid standalone SVG document based on vector mode.
+        If hierarchical_weights is True, renders multi-tier line weights (bold silhouette,
+        medium structure, fine details) with semantic <g> tier grouping.
         """
         w, h, d = path_data["w"], path_data["h"], path_data["d"]
         mode = path_data.get("mode", "ribbon")
         sw = path_data.get("stroke_width", 1.8) or 1.8
 
         bg_rect = (
-            f'<rect width="100%" height="100%" fill="{background_color}"/>'
+            f'<rect width="100%" height="100%" fill="{background_color}"/>\n'
             if background_color
             else ""
         )
 
+        tiers = path_data.get("tiers")
+
         if mode == "centerline":
+            if hierarchical_weights and tiers:
+                sil_d = tiers.get("silhouette", "")
+                str_d = tiers.get("structure", "")
+                det_d = tiers.get("detail", "")
+                sw_sil = round(sw * 1.5, 1)
+                sw_str = round(sw * 1.0, 1)
+                sw_det = round(max(0.9, sw * 0.65), 1)
+
+                elements = []
+                if sil_d:
+                    elements.append(
+                        f'  <g id="tier-silhouette"><path d="{sil_d}" stroke="{stroke_color}" stroke-width="{sw_sil}" stroke-linecap="round" stroke-linejoin="round" fill="none"/></g>'
+                    )
+                if str_d:
+                    elements.append(
+                        f'  <g id="tier-structure"><path d="{str_d}" stroke="{stroke_color}" stroke-width="{sw_str}" stroke-linecap="round" stroke-linejoin="round" fill="none"/></g>'
+                    )
+                if det_d:
+                    elements.append(
+                        f'  <g id="tier-detail"><path d="{det_d}" stroke="{stroke_color}" stroke-width="{sw_det}" stroke-linecap="round" stroke-linejoin="round" fill="none"/></g>'
+                    )
+                content = "\n".join(elements)
+            else:
+                content = (
+                    f'  <path d="{d}" stroke="{stroke_color}" stroke-width="{sw}" '
+                    f'stroke-linecap="round" stroke-linejoin="round" fill="none"/>'
+                )
+
             return (
                 f'<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 {w} {h}" '
                 f'width="{w}" height="{h}">\n'
-                f'  {bg_rect}\n'
-                f'  <path d="{d}" stroke="{stroke_color}" stroke-width="{sw}" '
-                f'stroke-linecap="round" stroke-linejoin="round" fill="none"/>\n'
+                f'  {bg_rect}'
+                f'{content}\n'
                 f'</svg>'
             )
         else:
+            if hierarchical_weights and tiers:
+                sil_d = tiers.get("silhouette", "")
+                str_d = tiers.get("structure", "")
+                det_d = tiers.get("detail", "")
+
+                elements = []
+                if sil_d:
+                    elements.append(f'  <g id="tier-silhouette"><path d="{sil_d}" fill="{stroke_color}" fill-rule="evenodd"/></g>')
+                if str_d:
+                    elements.append(f'  <g id="tier-structure"><path d="{str_d}" fill="{stroke_color}" fill-rule="evenodd"/></g>')
+                if det_d:
+                    elements.append(f'  <g id="tier-detail"><path d="{det_d}" fill="{stroke_color}" fill-rule="evenodd"/></g>')
+                content = "\n".join(elements)
+            else:
+                content = f'  <path d="{d}" fill="{stroke_color}" fill-rule="evenodd"/>'
+
             return (
                 f'<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 {w} {h}" '
                 f'width="{w}" height="{h}">\n'
-                f'  {bg_rect}\n'
-                f'  <path d="{d}" fill="{stroke_color}" fill-rule="evenodd"/>\n'
+                f'  {bg_rect}'
+                f'{content}\n'
                 f'</svg>'
             )
 
