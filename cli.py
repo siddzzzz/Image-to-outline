@@ -60,6 +60,12 @@ def main():
         action="store_true",
         help="Render multi-weight strokes in preview SVG (bold silhouette, medium structure, fine detail).",
     )
+    parser.add_argument(
+        "--corner-angle",
+        type=float,
+        default=55.0,
+        help="Minimum turning angle in degrees to treat as a sharp corner (default: 55.0).",
+    )
 
     args = parser.parse_args()
 
@@ -79,6 +85,7 @@ def main():
         use_flow_guidance=not args.disable_flow,
         min_tier=args.min_tier,
         hierarchical_svg=args.hierarchical_svg,
+        corner_angle_deg=args.corner_angle,
     )
 
     json_path = args.output_json or args.input.with_suffix(".outline.json")

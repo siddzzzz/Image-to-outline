@@ -331,6 +331,16 @@
                  onchange="triggerConvert()" />
         </div>
 
+        <div class="control-group">
+          <label>
+            <span>Sharp Corner Threshold</span>
+            <strong id="cornerVal">55&deg;</strong>
+          </label>
+          <input type="range" id="cornerInput" min="30" max="85" step="5" value="55"
+                 oninput="document.getElementById('cornerVal').textContent=this.value+'&deg;'"
+                 onchange="triggerConvert()" />
+        </div>
+
         <label class="checkbox-row">
           <input type="checkbox" id="removeBgInput" checked onchange="triggerConvert()" />
           <span>Ignore Background (U2Netp + Hybrid)</span>
@@ -458,6 +468,7 @@
       form.append("use_flow_guidance", document.getElementById("flowGuidanceInput").checked);
       form.append("min_tier", document.getElementById("tierSelect").value);
       form.append("hierarchical_svg", document.getElementById("hierarchicalSvgInput").checked);
+      form.append("corner_angle_deg", document.getElementById("cornerInput").value);
 
       try {
         const res = await fetch("/api/outline", { method: "POST", body: form });

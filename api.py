@@ -51,6 +51,7 @@ async def convert_image_to_outline(
     use_flow_guidance: bool = Form(True),
     min_tier: Literal["silhouette", "structure", "detail"] = Form("detail"),
     hierarchical_svg: bool = Form(False),
+    corner_angle_deg: float = Form(55.0),
 ):
     """
     Main endpoint for converting an uploaded image into a compact DB vector outline.
@@ -74,6 +75,7 @@ async def convert_image_to_outline(
             use_flow_guidance=use_flow_guidance,
             min_tier=min_tier,
             hierarchical_svg=hierarchical_svg,
+            corner_angle_deg=corner_angle_deg,
         )
     except Exception as exc:
         raise HTTPException(status_code=422, detail=f"Failed to process image: {exc}") from exc
