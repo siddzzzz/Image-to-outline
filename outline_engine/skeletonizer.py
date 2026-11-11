@@ -7,13 +7,17 @@ from dataclasses import dataclass
 import cv2
 import numpy as np
 
+from .hierarchy import StrokeTier, HierarchyClassifier
+
 
 @dataclass
 class CenterlineStroke:
-    """A continuous centerline stroke with coordinates, local radius, and loop state."""
+    """A continuous centerline stroke with coordinates, local radius, loop state, and structural hierarchy tier."""
     points: np.ndarray  # shape (N, 2) float32 coordinates (x, y)
     radii: np.ndarray   # shape (N,) float32 stroke half-width/radius
     is_closed: bool
+    tier: StrokeTier = StrokeTier.DETAIL
+    salience: float = 0.0
 
     def get_tapered_radii(self, taper_fraction: float = 0.25, min_tip_ratio: float = 0.2) -> np.ndarray:
         """
@@ -94,6 +98,7 @@ class StrokeSkeletonizer:
             (-1, 0), (-1, 1), (0, 1), (1, 1),
             (1, 0), (1, -1), (0, -1), (-1, -1),
         ]
+        self.classifier = HierarchyClassifier()
 
     @staticmethod
     def _build_zhang_suen_luts() -> tuple[np.ndarray, np.ndarray]:
@@ -164,10 +169,14 @@ class StrokeSkeletonizer:
         min_length: int = 4,
         tx: np.ndarray | None = None,
         ty: np.ndarray | None = None,
+        silhouette_mask: np.ndarray | None = None,
+        structure_mask: np.ndarray | None = None,
+        mag_map: np.ndarray | None = None,
     ) -> list[CenterlineStroke]:
         """
         Traces a binary stroke bitmap into continuous, ordered CenterlineStroke objects
-        using directional look-ahead continuity and Edge Tangent Flow (ETF) guidance.
+        using directional look-ahead continuity, Edge Tangent Flow (ETF) guidance,
+        and structural hierarchy classification.
         """
         thin, dist = self.compute_medial_axis(binary_img)
         h, w = thin.shape
@@ -247,11 +256,23 @@ class StrokeSkeletonizer:
                 dx = pts_list[0][0] - pts_list[-1][0]
                 dy = pts_list[0][1] - pts_list[-1][1]
                 is_closed = (len(pts_list) >= 6) and (dx * dx + dy * dy <= 4.0)
+                pts_arr = np.array(pts_list, dtype=np.float32)
+                rad_arr = np.array(rad_list, dtype=np.float32)
+
+                tier, salience = self.classifier.classify_stroke(
+                    pts_arr,
+                    silhouette_mask=silhouette_mask,
+                    structure_mask=structure_mask,
+                    mag_map=mag_map,
+                )
+
                 strokes.append(
                     CenterlineStroke(
-                        points=np.array(pts_list, dtype=np.float32),
-                        radii=np.array(rad_list, dtype=np.float32),
+                        points=pts_arr,
+                        radii=rad_arr,
                         is_closed=is_closed,
+                        tier=tier,
+                        salience=salience,
                     )
                 )
 
