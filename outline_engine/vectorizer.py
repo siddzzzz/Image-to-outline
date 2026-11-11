@@ -7,6 +7,7 @@ import cv2
 
 from .skeletonizer import StrokeSkeletonizer, CenterlineStroke
 from .hierarchy import StrokeTier
+from .curvature import AdaptiveBezierFitter
 
 VectorMode = Literal["centerline", "tapered_ribbon", "ribbon"]
 
@@ -39,6 +40,12 @@ class BezierVectorizer:
         self.min_contour_area = min_contour_area
         self.mode = mode
         self.skeletonizer = StrokeSkeletonizer()
+        self.fitter = AdaptiveBezierFitter(
+            max_error=max(0.6, self.simplify_epsilon * 1.2),
+            corner_thresh_deg=corner_angle_deg,
+            collinear_thresh=0.65,
+            precision=self.precision,
+        )
 
     def _fmt(self, val: float) -> str:
         if self.precision <= 0:
@@ -64,112 +71,19 @@ class BezierVectorizer:
 
     def _contour_to_bezier_path(self, pts: np.ndarray) -> str:
         """
-        Fits a closed sequence of 2D anchor points with piecewise Cubic Bézier curves.
+        Fits a closed sequence of 2D anchor points with adaptive Cubic Bézier curves,
+        preserving sharp corner cusps and reducing straight lines to compact 'L' commands.
         Ends with 'Z'.
         """
-        n = len(pts)
-        if n < 3:
-            return ""
-
-        if n <= 4:
-            coords = "L".join(f"{self._fmt(p[0])} {self._fmt(p[1])}" for p in pts[1:])
-            return f"M{self._fmt(pts[0][0])} {self._fmt(pts[0][1])}L{coords}Z"
-
-        cmds = [f"M{self._fmt(pts[0][0])} {self._fmt(pts[0][1])}"]
-        tension_scale = self.curve_tension / 3.0
-
-        seg_vecs = np.roll(pts, -1, axis=0) - pts
-        seg_lens = np.linalg.norm(seg_vecs, axis=1, keepdims=True) + 1e-8
-        unit_vecs = seg_vecs / seg_lens
-
-        in_vecs = np.roll(unit_vecs, 1, axis=0)
-        out_vecs = unit_vecs
-        cos_angles = np.sum(in_vecs * out_vecs, axis=1)
-        is_corner = cos_angles < self.corner_cos_thresh
-
-        for i in range(n):
-            p0 = pts[(i - 1) % n]
-            p1 = pts[i]
-            p2 = pts[(i + 1) % n]
-            p3 = pts[(i + 2) % n]
-
-            seg_len = float(seg_lens[i, 0])
-            if seg_len < 3.5 or (is_corner[i] and is_corner[(i + 1) % n]):
-                cmds.append(f"L{self._fmt(p2[0])} {self._fmt(p2[1])}")
-                continue
-
-            if is_corner[i]:
-                c1 = p1 + (p2 - p1) * 0.25
-            else:
-                t1 = (p2 - p0) * tension_scale
-                t1_len = float(np.linalg.norm(t1))
-                if t1_len > seg_len * 0.42:
-                    t1 = t1 * (seg_len * 0.42 / (t1_len + 1e-8))
-                c1 = p1 + t1
-
-            if is_corner[(i + 1) % n]:
-                c2 = p2 - (p2 - p1) * 0.25
-            else:
-                t2 = (p3 - p1) * tension_scale
-                t2_len = float(np.linalg.norm(t2))
-                if t2_len > seg_len * 0.42:
-                    t2 = t2 * (seg_len * 0.42 / (t2_len + 1e-8))
-                c2 = p2 - t2
-
-            cmds.append(
-                f"C{self._fmt(c1[0])} {self._fmt(c1[1])} "
-                f"{self._fmt(c2[0])} {self._fmt(c2[1])} "
-                f"{self._fmt(p2[0])} {self._fmt(p2[1])}"
-            )
-
-        cmds.append("Z")
-        return "".join(cmds)
+        return self.fitter.fit_stroke_to_path(pts, is_closed=True)
 
     def _open_stroke_to_bezier_path(self, pts: np.ndarray) -> str:
         """
-        Fits an open sequence of 2D anchor points with piecewise Cubic Bézier curves.
+        Fits an open sequence of 2D anchor points with adaptive Cubic Bézier curves,
+        preserving sharp corner cusps and reducing straight lines to compact 'L' commands.
         Does not close with 'Z'.
         """
-        n = len(pts)
-        if n < 2:
-            return ""
-
-        if n == 2:
-            return f"M{self._fmt(pts[0][0])} {self._fmt(pts[0][1])}L{self._fmt(pts[1][0])} {self._fmt(pts[1][1])}"
-
-        cmds = [f"M{self._fmt(pts[0][0])} {self._fmt(pts[0][1])}"]
-        tension_scale = self.curve_tension / 3.0
-
-        for i in range(n - 1):
-            p1 = pts[i]
-            p2 = pts[i + 1]
-            p0 = pts[i - 1] if i > 0 else (p1 - (p2 - p1))
-            p3 = pts[i + 2] if i + 2 < n else (p2 + (p2 - p1))
-
-            seg_vec = p2 - p1
-            seg_len = float(np.linalg.norm(seg_vec)) + 1e-8
-
-            if seg_len < 3.0:
-                cmds.append(f"L{self._fmt(p2[0])} {self._fmt(p2[1])}")
-                continue
-
-            t1 = (p2 - p0) * tension_scale
-            t1_len = float(np.linalg.norm(t1))
-            if t1_len > seg_len * 0.42:
-                t1 = t1 * (seg_len * 0.42 / (t1_len + 1e-8))
-            c1 = p1 + t1
-
-            t2 = (p3 - p1) * tension_scale
-            t2_len = float(np.linalg.norm(t2))
-            if t2_len > seg_len * 0.42:
-                t2 = t2 * (seg_len * 0.42 / (t2_len + 1e-8))
-            c2 = p2 - t2
-
-            cmds.append(
-                f"C{self._fmt(c1[0])} {self._fmt(c1[1])} "
-                f"{self._fmt(c2[0])} {self._fmt(c2[1])} "
-                f"{self._fmt(p2[0])} {self._fmt(p2[1])}"
-            )
+        return self.fitter.fit_stroke_to_path(pts, is_closed=False)
 
         return "".join(cmds)
 
@@ -233,24 +147,14 @@ class BezierVectorizer:
             if len(pts) < 2:
                 continue
 
-            smoothed = self._smooth_pixel_chain(pts)
-            approx = cv2.approxPolyDP(
-                smoothed.reshape(-1, 1, 2),
-                epsilon=self.simplify_epsilon,
-                closed=stroke.is_closed,
-            )[:, 0, :]
-
-            if len(approx) < 2:
-                continue
-
             if stroke.is_closed:
-                subpath = self._contour_to_bezier_path(approx)
+                subpath = self._contour_to_bezier_path(pts)
             else:
-                subpath = self._open_stroke_to_bezier_path(approx)
+                subpath = self._open_stroke_to_bezier_path(pts)
 
             if subpath:
                 tier_segments[stroke.tier].append(subpath)
-                total_points += len(approx)
+                total_points += len(pts)
                 all_radii.append(float(np.median(stroke.radii)))
 
         avg_stroke_w = max(1.2, float(np.median(all_radii) * 2.0)) if all_radii else 1.8
@@ -337,20 +241,10 @@ class BezierVectorizer:
             if len(ribbon_pts) < 3:
                 continue
 
-            smoothed = self._smooth_pixel_chain(ribbon_pts)
-            approx = cv2.approxPolyDP(
-                smoothed.reshape(-1, 1, 2),
-                epsilon=self.simplify_epsilon,
-                closed=True,
-            )[:, 0, :]
-
-            if len(approx) < 3:
-                continue
-
-            subpath = self._contour_to_bezier_path(approx)
+            subpath = self._contour_to_bezier_path(ribbon_pts)
             if subpath:
                 tier_segments[stroke.tier].append(subpath)
-                total_points += len(approx)
+                total_points += len(ribbon_pts)
 
         path_segments = (
             tier_segments[StrokeTier.SILHOUETTE]
@@ -446,29 +340,15 @@ class BezierVectorizer:
                 continue
 
             pts = raw_cnt[:, 0, :]
-            smoothed = self._smooth_pixel_chain(pts)
-
-            approx = cv2.approxPolyDP(
-                smoothed.reshape(-1, 1, 2),
-                epsilon=self.simplify_epsilon,
-                closed=True,
-            )[:, 0, :]
-
-            if len(approx) < 3:
-                if len(pts) >= 4:
-                    approx = np.array([pts[0], pts[len(pts) // 3], pts[2 * len(pts) // 3]])
-                else:
-                    continue
-
             is_hole = hier[idx][3] != -1
-            signed_area = cv2.contourArea(approx.reshape(-1, 1, 2), oriented=True)
+            signed_area = cv2.contourArea(pts.reshape(-1, 1, 2), oriented=True)
             if (not is_hole and signed_area < 0) or (is_hole and signed_area > 0):
-                approx = approx[::-1]
+                pts = pts[::-1]
 
-            subpath = self._contour_to_bezier_path(approx)
+            subpath = self._contour_to_bezier_path(pts)
             if subpath:
                 path_segments.append(subpath)
-                total_points += len(approx)
+                total_points += len(pts)
 
         return {
             "w": w,
