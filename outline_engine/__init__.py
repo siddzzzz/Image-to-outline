@@ -8,6 +8,7 @@ from .face_enhancer import FaceEnhancer
 from .flow_field import EdgeTangentFlow
 from .skeletonizer import StrokeSkeletonizer, CenterlineStroke
 from .vectorizer import BezierVectorizer, VectorMode
+from .hierarchy import StrokeTier, HierarchyClassifier
 
 __all__ = [
     "ImageToOutlinePipeline",
@@ -18,5 +19,7 @@ __all__ = [
     "CenterlineStroke",
     "BezierVectorizer",
     "VectorMode",
+    "StrokeTier",
+    "HierarchyClassifier",
 ]
 

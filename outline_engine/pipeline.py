@@ -8,6 +8,7 @@ import numpy as np
 from .segmenter import ForegroundSegmenter
 from .stylizer import AnimatedLineStylizer, DetailLevel
 from .vectorizer import BezierVectorizer, VectorMode
+from .hierarchy import StrokeTier
 
 
 @dataclass
@@ -25,6 +26,8 @@ class OutlineResult:
     svg_string: str
     vector_mode: VectorMode = "centerline"
     stroke_width: float | None = None
+    tiers: dict[str, str] | None = None
+    tier_counts: dict[str, int] | None = None
 
     def to_db_dict(self) -> dict:
         """Minimal JSON object designed to be stored directly in a database column."""
@@ -32,6 +35,17 @@ class OutlineResult:
             "w": self.width,
             "h": self.height,
             "d": self.path_d,
+        }
+        if self.vector_mode == "centerline" and self.stroke_width is not None:
+            payload["sw"] = self.stroke_width
+        return payload
+
+    def to_hierarchical_db_dict(self) -> dict:
+        """Database payload preserving semantic hierarchy tiers for multi-style rendering."""
+        payload = {
+            "w": self.width,
+            "h": self.height,
+            "tiers": self.tiers or {},
         }
         if self.vector_mode == "centerline" and self.stroke_width is not None:
             payload["sw"] = self.stroke_width
@@ -131,6 +145,9 @@ class ImageToOutlinePipeline:
         enhance_faces: bool = True,
         vector_mode: VectorMode = "centerline",
         use_flow_guidance: bool = True,
+        min_tier: StrokeTier | str = StrokeTier.DETAIL,
+        max_detail_strokes: int | None = None,
+        hierarchical_svg: bool = False,
     ) -> OutlineResult:
         """
         Runs the full pipeline on an image and returns an OutlineResult.
@@ -161,6 +178,16 @@ class ImageToOutlinePipeline:
             fg_mask = cv2.resize(fg_mask, (new_w, new_h), interpolation=cv2.INTER_LINEAR)
             _, fg_mask = cv2.threshold(fg_mask, 127, 255, cv2.THRESH_BINARY)
 
+        # Compute outer silhouette mask boundary for tier classification
+        k_out = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (5, 5))
+        k_in = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (3, 3))
+        silhouette_mask = cv2.subtract(cv2.dilate(fg_mask, k_out), cv2.erode(fg_mask, k_in))
+
+        # Structure mask from facial landmarks
+        structure_mask = None
+        if enhance_faces:
+            structure_mask, _ = self.stylizer.face_enhancer.extract_face_features(bgr, detail=detail)
+
         # Stage 3: Smooth animation-style line extraction (with ETF flow guidance & face enhancement)
         if use_flow_guidance:
             line_bitmap, tx, ty = self.stylizer.generate_line_bitmap(
@@ -184,14 +211,34 @@ class ImageToOutlinePipeline:
             )
             tx, ty = None, None
 
-        # Stage 4: Mathematical Cubic Bézier vectorization
+        # Stage 4: Mathematical Cubic Bézier vectorization with structural hierarchy
+        if isinstance(min_tier, str):
+            tier_map = {
+                "silhouette": StrokeTier.SILHOUETTE,
+                "structure": StrokeTier.STRUCTURE,
+                "detail": StrokeTier.DETAIL,
+                "all": StrokeTier.DETAIL,
+            }
+            target_tier = tier_map.get(min_tier.lower(), StrokeTier.DETAIL)
+        else:
+            target_tier = min_tier
+
         vectorizer = BezierVectorizer(
             simplify_epsilon=simplify_epsilon,
             precision=0,
             mode=vector_mode,
         )
-        traced = vectorizer.trace_bitmap(line_bitmap, mode=vector_mode, tx=tx, ty=ty)
-        svg_str = vectorizer.to_svg_string(traced)
+        traced = vectorizer.trace_bitmap(
+            line_bitmap,
+            mode=vector_mode,
+            tx=tx,
+            ty=ty,
+            silhouette_mask=silhouette_mask,
+            structure_mask=structure_mask,
+            min_tier=target_tier,
+            max_detail_strokes=max_detail_strokes,
+        )
+        svg_str = vectorizer.to_svg_string(traced, hierarchical_weights=hierarchical_svg)
 
         db_dict = {"w": traced["w"], "h": traced["h"], "d": traced["d"]}
         if traced.get("mode") == "centerline" and traced.get("stroke_width") is not None:
@@ -215,4 +262,6 @@ class ImageToOutlinePipeline:
             svg_string=svg_str,
             vector_mode=traced.get("mode", vector_mode),
             stroke_width=traced.get("stroke_width"),
+            tiers=traced.get("tiers"),
+            tier_counts=traced.get("tier_counts"),
         )
