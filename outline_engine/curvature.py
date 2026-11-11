@@ -243,6 +243,18 @@ class AdaptiveBezierFitter:
         self._fit_recursive(pts[: split_idx + 1], t1, t_center, cmds, depth + 1)
         self._fit_recursive(pts[split_idx:], t_center, t2, cmds, depth + 1)
 
+    @staticmethod
+    def _smooth_slice(pts: np.ndarray) -> np.ndarray:
+        """Smooths interior points of a slice while keeping sharp corner endpoints fixed."""
+        if len(pts) < 5:
+            return pts
+        smoothed = pts.copy().astype(np.float32)
+        interior = pts[1:-1]
+        prev_p = pts[:-2]
+        next_p = pts[2:]
+        smoothed[1:-1] = 0.18 * prev_p + 0.64 * interior + 0.18 * next_p
+        return smoothed
+
     def fit_stroke_to_path(
         self,
         points: np.ndarray,
@@ -264,27 +276,54 @@ class AdaptiveBezierFitter:
 
         # 1. Detect sharp corners along the stroke
         corners = self.analyzer.detect_corners(
-            points, is_closed=is_closed, corner_thresh_deg=self.corner_thresh_deg
+            points, is_closed=is_closed, corner_thresh_deg=self.corner_thresh_deg, k=2
         )
 
-        cmds: List[str] = [f"M{self._fmt(points[0][0])} {self._fmt(points[0][1])}"]
-
-        # 2. Split stroke into smooth sub-segments between sharp corners
+        # 2. Fit segments between corners
         if not corners:
             # Entire stroke is smooth
-            t1 = self._estimate_tangent(points, 0, forward=True)
-            t2 = self._estimate_tangent(points, n - 1, forward=False)
-            self._fit_recursive(points, t1, t2, cmds)
+            if is_closed and n >= 6:
+                curr = points.astype(np.float32)
+                prev_pts = np.roll(curr, 1, axis=0)
+                next_pts = np.roll(curr, -1, axis=0)
+                work_pts = 0.18 * prev_pts + 0.64 * curr + 0.18 * next_pts
+            elif not is_closed and n >= 5:
+                work_pts = self._smooth_slice(points)
+            else:
+                work_pts = points
+
+            cmds: List[str] = [f"M{self._fmt(work_pts[0][0])} {self._fmt(work_pts[0][1])}"]
+            t1 = self._estimate_tangent(work_pts, 0, forward=True)
+            t2 = self._estimate_tangent(work_pts, n - 1, forward=False)
+            self._fit_recursive(work_pts, t1, t2, cmds)
+        elif is_closed:
+            # Closed loop with corners: cycle through corners
+            k_corners = len(corners)
+            start_corner = corners[0]
+            cmds = [f"M{self._fmt(points[start_corner][0])} {self._fmt(points[start_corner][1])}"]
+
+            for i in range(k_corners):
+                c_start = corners[i]
+                c_end = corners[(i + 1) % k_corners]
+                if c_end > c_start:
+                    raw_slice = points[c_start : c_end + 1]
+                else:
+                    raw_slice = np.vstack([points[c_start:], points[: c_end + 1]])
+
+                slice_pts = self._smooth_slice(raw_slice)
+                t1 = self._estimate_tangent(slice_pts, 0, forward=True)
+                t2 = self._estimate_tangent(slice_pts, len(slice_pts) - 1, forward=False)
+                self._fit_recursive(slice_pts, t1, t2, cmds)
         else:
-            # Partition into slices at corner indices
-            split_indices = [0] + [c for c in corners if 0 < c < n - 1] + [n - 1]
-            # Remove consecutive duplicates
-            split_indices = sorted(list(set(split_indices)))
+            # Open stroke with internal corners
+            split_indices = sorted(list(set([0] + [c for c in corners if 0 < c < n - 1] + [n - 1])))
+            cmds = [f"M{self._fmt(points[0][0])} {self._fmt(points[0][1])}"]
 
             for i in range(len(split_indices) - 1):
                 start = split_indices[i]
                 end = split_indices[i + 1]
-                slice_pts = points[start : end + 1]
+                raw_slice = points[start : end + 1]
+                slice_pts = self._smooth_slice(raw_slice)
 
                 t1 = self._estimate_tangent(slice_pts, 0, forward=True)
                 t2 = self._estimate_tangent(slice_pts, len(slice_pts) - 1, forward=False)
