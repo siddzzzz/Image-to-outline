@@ -303,6 +303,15 @@
         </div>
 
         <div class="control-group">
+          <label><span>Structural Hierarchy Pruning</span></label>
+          <select id="tierSelect" onchange="triggerConvert()">
+            <option value="detail" selected>All Lines (Silhouette + Structure + Details)</option>
+            <option value="structure">Structure Only (Silhouette + Facial &amp; Key Creases)</option>
+            <option value="silhouette">Silhouette Only (Pure Outer Boundary)</option>
+          </select>
+        </div>
+
+        <div class="control-group">
           <label>
             <span>Outer Silhouette Thickness</span>
             <strong id="thickVal">2 px</strong>
@@ -340,6 +349,11 @@
         <label class="checkbox-row">
           <input type="checkbox" id="flowGuidanceInput" checked onchange="triggerConvert()" />
           <span>Coherent Flow Smoothing (Edge Tangent Field)</span>
+        </label>
+
+        <label class="checkbox-row">
+          <input type="checkbox" id="hierarchicalSvgInput" checked onchange="triggerConvert()" />
+          <span>Multi-Weight Inking (Bold Silhouette, Fine Details)</span>
         </label>
 
         <button class="btn-primary" id="convertBtn" onclick="triggerConvert()">Convert to Vector Outline</button>
@@ -442,6 +456,8 @@
       form.append("auto_crop", document.getElementById("autoCropInput").checked);
       form.append("enhance_faces", document.getElementById("enhanceFacesInput").checked);
       form.append("use_flow_guidance", document.getElementById("flowGuidanceInput").checked);
+      form.append("min_tier", document.getElementById("tierSelect").value);
+      form.append("hierarchical_svg", document.getElementById("hierarchicalSvgInput").checked);
 
       try {
         const res = await fetch("/api/outline", { method: "POST", body: form });
@@ -452,25 +468,35 @@
         document.getElementById("jsonOutput").value = payloadStr;
         lastSvgString = data.svg;
 
-        // Render strictly from the compact db_payload to prove it works standalone
-        const { w, h, d, sw } = data.db_payload;
-        if (sw !== undefined && sw !== null) {
-          document.getElementById("svgViewport").innerHTML =
-            `<svg viewBox="0 0 ${w} ${h}" width="100%" height="100%">
-               <path d="${d}" stroke="#000000" stroke-width="${sw}" stroke-linecap="round" stroke-linejoin="round" fill="none" />
-             </svg>`;
+        // Render with multi-weight tiers if enabled, or from compact db_payload
+        if (document.getElementById("hierarchicalSvgInput").checked && data.svg) {
+          document.getElementById("svgViewport").innerHTML = data.svg;
         } else {
-          document.getElementById("svgViewport").innerHTML =
-            `<svg viewBox="0 0 ${w} ${h}" width="100%" height="100%">
-               <path d="${d}" fill="#000000" fill-rule="evenodd" />
-             </svg>`;
+          const { w, h, d, sw } = data.db_payload;
+          if (sw !== undefined && sw !== null) {
+            document.getElementById("svgViewport").innerHTML =
+              `<svg viewBox="0 0 ${w} ${h}" width="100%" height="100%">
+                 <path d="${d}" stroke="#000000" stroke-width="${sw}" stroke-linecap="round" stroke-linejoin="round" fill="none" />
+               </svg>`;
+          } else {
+            document.getElementById("svgViewport").innerHTML =
+              `<svg viewBox="0 0 ${w} ${h}" width="100%" height="100%">
+                 <path d="${d}" fill="#000000" fill-rule="evenodd" />
+               </svg>`;
+          }
         }
 
         const m = data.metrics;
         document.getElementById("mTime").textContent = `${m.processing_ms} ms`;
         document.getElementById("mJsonSize").textContent = `${m.json_size_kb} KB`;
         document.getElementById("mGzipSize").textContent = `${m.gzip_size_kb} KB`;
-        document.getElementById("mPoints").textContent = `${m.contours} / ${m.anchor_points} pts`;
+
+        if (m.tier_counts) {
+          const tc = m.tier_counts;
+          document.getElementById("mPoints").textContent = `${m.contours} curves (Sil:${tc.silhouette} Str:${tc.structure} Det:${tc.detail})`;
+        } else {
+          document.getElementById("mPoints").textContent = `${m.contours} / ${m.anchor_points} pts`;
+        }
       } catch (err) {
         alert(err.message);
       } finally {

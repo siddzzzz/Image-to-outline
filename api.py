@@ -49,6 +49,8 @@ async def convert_image_to_outline(
     auto_crop: bool = Form(True),
     enhance_faces: bool = Form(True),
     use_flow_guidance: bool = Form(True),
+    min_tier: Literal["silhouette", "structure", "detail"] = Form("detail"),
+    hierarchical_svg: bool = Form(False),
 ):
     """
     Main endpoint for converting an uploaded image into a compact DB vector outline.
@@ -70,6 +72,8 @@ async def convert_image_to_outline(
             enhance_faces=enhance_faces,
             vector_mode=vector_mode,
             use_flow_guidance=use_flow_guidance,
+            min_tier=min_tier,
+            hierarchical_svg=hierarchical_svg,
         )
     except Exception as exc:
         raise HTTPException(status_code=422, detail=f"Failed to process image: {exc}") from exc
@@ -88,6 +92,7 @@ async def convert_image_to_outline(
             "savings_percent": savings_pct,
             "contours": res.contours_count,
             "anchor_points": res.anchor_points_count,
+            "tier_counts": res.tier_counts,
         },
         "svg": res.svg_string,
     })

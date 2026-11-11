@@ -49,6 +49,17 @@ def main():
         action="store_true",
         help="Disable Edge Tangent Flow (ETF) directional smoothing.",
     )
+    parser.add_argument(
+        "--min-tier",
+        choices=["silhouette", "structure", "detail"],
+        default="detail",
+        help="Minimum hierarchy tier to retain (default: detail).",
+    )
+    parser.add_argument(
+        "--hierarchical-svg",
+        action="store_true",
+        help="Render multi-weight strokes in preview SVG (bold silhouette, medium structure, fine detail).",
+    )
 
     args = parser.parse_args()
 
@@ -66,6 +77,8 @@ def main():
         enhance_faces=not args.disable_face_enhance,
         vector_mode=args.mode,
         use_flow_guidance=not args.disable_flow,
+        min_tier=args.min_tier,
+        hierarchical_svg=args.hierarchical_svg,
     )
 
     json_path = args.output_json or args.input.with_suffix(".outline.json")
