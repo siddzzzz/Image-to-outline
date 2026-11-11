@@ -9,6 +9,7 @@ from .flow_field import EdgeTangentFlow
 from .skeletonizer import StrokeSkeletonizer, CenterlineStroke
 from .vectorizer import BezierVectorizer, VectorMode
 from .hierarchy import StrokeTier, HierarchyClassifier
+from .curvature import CurvatureAnalyzer, AdaptiveBezierFitter
 
 __all__ = [
     "ImageToOutlinePipeline",
@@ -21,5 +22,7 @@ __all__ = [
     "VectorMode",
     "StrokeTier",
     "HierarchyClassifier",
+    "CurvatureAnalyzer",
+    "AdaptiveBezierFitter",
 ]
 

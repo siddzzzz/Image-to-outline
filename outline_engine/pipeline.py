@@ -148,6 +148,7 @@ class ImageToOutlinePipeline:
         min_tier: StrokeTier | str = StrokeTier.DETAIL,
         max_detail_strokes: int | None = None,
         hierarchical_svg: bool = False,
+        corner_angle_deg: float = 55.0,
     ) -> OutlineResult:
         """
         Runs the full pipeline on an image and returns an OutlineResult.
@@ -225,6 +226,7 @@ class ImageToOutlinePipeline:
 
         vectorizer = BezierVectorizer(
             simplify_epsilon=simplify_epsilon,
+            corner_angle_deg=corner_angle_deg,
             precision=0,
             mode=vector_mode,
         )
