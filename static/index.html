@@ -408,7 +408,12 @@
 
         <div class="json-box">
           <div class="json-header">
-            <span>Database Payload: {"w": width, "h": height, "d": "Bézier Path", "sw"?: stroke_width}</span>
+            <span>Database Payload:
+              <select id="payloadFormatSelect" onchange="updateJsonDisplay()" style="width:auto; padding:3px 8px; font-size:0.75rem; margin-left:6px;">
+                <option value="svg" selected>Relative SVG JSON ({"w","h","d"})</option>
+                <option value="compact">Compact Binary Base64 ({"v":1,"b":"..."})</option>
+              </select>
+            </span>
             <div class="action-btns">
               <button class="btn-sm" onclick="copyJson()">Copy DB JSON</button>
               <button class="btn-sm" onclick="downloadSvg()">Download .SVG</button>
@@ -475,8 +480,9 @@
         const data = await res.json();
         if (!res.ok) throw new Error(data.detail || "Conversion failed");
 
-        const payloadStr = JSON.stringify(data.db_payload);
-        document.getElementById("jsonOutput").value = payloadStr;
+        lastDbPayload = data.db_payload;
+        lastCompactPayload = data.compact_payload || null;
+        updateJsonDisplay();
         lastSvgString = data.svg;
 
         // Render with multi-weight tiers if enabled, or from compact db_payload
@@ -500,7 +506,9 @@
         const m = data.metrics;
         document.getElementById("mTime").textContent = `${m.processing_ms} ms`;
         document.getElementById("mJsonSize").textContent = `${m.json_size_kb} KB`;
-        document.getElementById("mGzipSize").textContent = `${m.gzip_size_kb} KB`;
+        document.getElementById("mGzipSize").textContent = m.compact_binary_kb !== undefined
+          ? `${m.gzip_size_kb} KB (${m.compact_binary_kb} KB bin)`
+          : `${m.gzip_size_kb} KB`;
 
         if (m.tier_counts) {
           const tc = m.tier_counts;
@@ -514,6 +522,67 @@
         btn.disabled = false;
         btn.textContent = "Convert to Vector Outline";
       }
+    }
+
+    let lastDbPayload = null;
+    let lastCompactPayload = null;
+
+    function updateJsonDisplay() {
+      const fmt = document.getElementById("payloadFormatSelect")?.value || "svg";
+      const out = document.getElementById("jsonOutput");
+      if (fmt === "compact" && lastCompactPayload) {
+        out.value = JSON.stringify(lastCompactPayload);
+      } else if (lastDbPayload) {
+        out.value = JSON.stringify(lastDbPayload);
+      }
+    }
+
+    function decodeCompactVector(b64) {
+      const raw = atob(b64);
+      const bytes = new Uint8Array(raw.length);
+      for (let i = 0; i < raw.length; i++) bytes[i] = raw.charCodeAt(i);
+      if (bytes.length < 7) throw new Error("Compact payload too short");
+      const version = bytes[0];
+      const flags = bytes[1];
+      const w = (bytes[2] << 8) | bytes[3];
+      const h = (bytes[4] << 8) | bytes[5];
+      const sw = bytes[6] / 10.0;
+      const isCenterline = (flags & 1) !== 0;
+
+      let pos = 7;
+      function readVarint() {
+        let shift = 0, val = 0;
+        while (pos < bytes.length) {
+          const b = bytes[pos++];
+          val |= (b & 0x7f) << shift;
+          if ((b & 0x80) === 0) break;
+          shift += 7;
+        }
+        return (val >>> 1) ^ -(val & 1);
+      }
+
+      let cx = 0, cy = 0, sx = 0, sy = 0;
+      const parts = [];
+      while (pos < bytes.length) {
+        const op = bytes[pos++];
+        if (op === 0) {
+          cx += readVarint(); cy += readVarint();
+          sx = cx; sy = cy;
+          parts.push(`M${(cx / 10).toFixed(1)} ${(cy / 10).toFixed(1)}`);
+        } else if (op === 1) {
+          cx += readVarint(); cy += readVarint();
+          parts.push(`L${(cx / 10).toFixed(1)} ${(cy / 10).toFixed(1)}`);
+        } else if (op === 2) {
+          const x1 = cx + readVarint(), y1 = cy + readVarint();
+          const x2 = cx + readVarint(), y2 = cy + readVarint();
+          cx += readVarint(); cy += readVarint();
+          parts.push(`C${(x1 / 10).toFixed(1)} ${(y1 / 10).toFixed(1)} ${(x2 / 10).toFixed(1)} ${(y2 / 10).toFixed(1)} ${(cx / 10).toFixed(1)} ${(cy / 10).toFixed(1)}`);
+        } else if (op === 3) {
+          cx = sx; cy = sy;
+          parts.push("Z");
+        }
+      }
+      return { version, w, h, sw, isCenterline, d: parts.join("") };
     }
 
     function copyJson() {
