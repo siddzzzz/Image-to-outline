@@ -86,11 +86,14 @@ async def convert_image_to_outline(
 
     return JSONResponse({
         "db_payload": res.to_db_dict(),
+        "compact_payload": res.to_compact_db_dict(),
         "metrics": {
             "processing_ms": res.processing_ms,
             "original_size_kb": round(orig_kb, 2),
             "json_size_kb": round(json_kb, 2),
             "gzip_size_kb": round(res.gzip_size_bytes / 1024.0, 2),
+            "compact_binary_kb": round(res.compact_binary_bytes / 1024.0, 2),
+            "compact_b64_kb": round(len(res.compact_b64) / 1024.0, 2),
             "savings_percent": savings_pct,
             "contours": res.contours_count,
             "anchor_points": res.anchor_points_count,

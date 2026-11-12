@@ -66,6 +66,11 @@ def main():
         default=55.0,
         help="Minimum turning angle in degrees to treat as a sharp corner (default: 55.0).",
     )
+    parser.add_argument(
+        "--compact-bin",
+        action="store_true",
+        help="Save DB JSON using ZigZag varint binary Base64 encoding (~60-75%% smaller).",
+    )
 
     args = parser.parse_args()
 
@@ -91,17 +96,23 @@ def main():
     json_path = args.output_json or args.input.with_suffix(".outline.json")
     svg_path = args.output_svg or args.input.with_suffix(".outline.svg")
 
-    json_path.write_text(res.to_db_json(), encoding="utf-8")
+    import json
+    if args.compact_bin:
+        json_path.write_text(json.dumps(res.to_compact_db_dict(), separators=(",", ":")), encoding="utf-8")
+    else:
+        json_path.write_text(res.to_db_json(), encoding="utf-8")
     svg_path.write_text(res.svg_string, encoding="utf-8")
 
     json_kb = res.json_size_bytes / 1024.0
     gzip_kb = res.gzip_size_bytes / 1024.0
+    bin_kb = res.compact_binary_bytes / 1024.0
     savings_pct = (1.0 - (json_kb / max(orig_size_kb, 0.01))) * 100.0
 
     print(f"Done in {res.processing_ms:.1f} ms!")
     print(f"  Canvas:          {res.width}x{res.height} ({res.contours_count} curves, {res.anchor_points_count} anchor pts)")
     print(f"  Original Image:  {orig_size_kb:.1f} KB")
     print(f"  DB JSON Size:    {json_kb:.2f} KB ({gzip_kb:.2f} KB gzipped) -> {savings_pct:.1f}% smaller")
+    print(f"  Compact Binary:  {bin_kb:.2f} KB ({len(res.compact_b64) / 1024.0:.2f} KB Base64)")
     print(f"  Saved DB JSON:   {json_path}")
     print(f"  Saved SVG File:  {svg_path}")
 

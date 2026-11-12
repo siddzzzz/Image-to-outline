@@ -10,6 +10,7 @@ from .skeletonizer import StrokeSkeletonizer, CenterlineStroke
 from .vectorizer import BezierVectorizer, VectorMode
 from .hierarchy import StrokeTier, HierarchyClassifier
 from .curvature import CurvatureAnalyzer, AdaptiveBezierFitter
+from .compressor import PathCompressor
 
 __all__ = [
     "ImageToOutlinePipeline",
@@ -24,5 +25,6 @@ __all__ = [
     "HierarchyClassifier",
     "CurvatureAnalyzer",
     "AdaptiveBezierFitter",
+    "PathCompressor",
 ]
 
