@@ -9,6 +9,7 @@ from .segmenter import ForegroundSegmenter
 from .stylizer import AnimatedLineStylizer, DetailLevel
 from .vectorizer import BezierVectorizer, VectorMode
 from .hierarchy import StrokeTier
+from .compressor import PathCompressor
 
 
 @dataclass
@@ -28,6 +29,8 @@ class OutlineResult:
     stroke_width: float | None = None
     tiers: dict[str, str] | None = None
     tier_counts: dict[str, int] | None = None
+    compact_b64: str = ""
+    compact_binary_bytes: int = 0
 
     def to_db_dict(self) -> dict:
         """Minimal JSON object designed to be stored directly in a database column."""
@@ -39,6 +42,10 @@ class OutlineResult:
         if self.vector_mode == "centerline" and self.stroke_width is not None:
             payload["sw"] = self.stroke_width
         return payload
+
+    def to_compact_db_dict(self) -> dict:
+        """Ultra-compact ZigZag varint binary Base64 payload (~60-75% smaller than ASCII SVG)."""
+        return {"v": 1, "b": self.compact_b64}
 
     def to_hierarchical_db_dict(self) -> dict:
         """Database payload preserving semantic hierarchy tiers for multi-style rendering."""
@@ -149,6 +156,7 @@ class ImageToOutlinePipeline:
         max_detail_strokes: int | None = None,
         hierarchical_svg: bool = False,
         corner_angle_deg: float = 55.0,
+        minify_relative: bool = True,
     ) -> OutlineResult:
         """
         Runs the full pipeline on an image and returns an OutlineResult.
@@ -242,8 +250,22 @@ class ImageToOutlinePipeline:
         )
         svg_str = vectorizer.to_svg_string(traced, hierarchical_weights=hierarchical_svg)
 
-        db_dict = {"w": traced["w"], "h": traced["h"], "d": traced["d"]}
-        if traced.get("mode") == "centerline" and traced.get("stroke_width") is not None:
+        raw_d = traced["d"]
+        is_cl = traced.get("mode") == "centerline"
+        compact_bin = PathCompressor.encode_binary(
+            d=raw_d,
+            width=traced["w"],
+            height=traced["h"],
+            stroke_width=traced.get("stroke_width"),
+            is_centerline=is_cl,
+        )
+        import base64 as _b64
+        compact_b64 = _b64.b64encode(compact_bin).decode("ascii")
+
+        d_out = PathCompressor.to_relative_svg(raw_d) if minify_relative else raw_d
+
+        db_dict = {"w": traced["w"], "h": traced["h"], "d": d_out}
+        if is_cl and traced.get("stroke_width") is not None:
             db_dict["sw"] = traced["stroke_width"]
 
         db_json_str = json.dumps(db_dict, separators=(",", ":"))
@@ -255,7 +277,7 @@ class ImageToOutlinePipeline:
             width=traced["w"],
             height=traced["h"],
             detail=detail,
-            path_d=traced["d"],
+            path_d=d_out,
             contours_count=traced["contours"],
             anchor_points_count=traced["points"],
             processing_ms=round(elapsed_ms, 1),
@@ -266,4 +288,6 @@ class ImageToOutlinePipeline:
             stroke_width=traced.get("stroke_width"),
             tiers=traced.get("tiers"),
             tier_counts=traced.get("tier_counts"),
+            compact_b64=compact_b64,
+            compact_binary_bytes=len(compact_bin),
         )
